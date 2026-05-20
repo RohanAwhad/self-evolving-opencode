@@ -75,15 +75,17 @@ def cluster_goals(
         return ClusterResult(clusters={}, labels=[])
 
     embeddings = _embed(goals, model_name)
+    dist_matrix = cosine_distances(embeddings).astype(np.float64)
 
     # --- initial clustering ---
     min_samples = hdbscan_min_samples or min_cluster_size
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
-        metric="euclidean",
+        metric="precomputed",
+        cluster_selection_method="leaf",
     )
-    labels = clusterer.fit_predict(embeddings)
+    labels = clusterer.fit_predict(dist_matrix)
 
     # --- absorb noise (-1) into nearest real cluster ---
     real_ids = {int(l) for l in labels if l != -1}
@@ -159,11 +161,13 @@ def _split_large(
             continue
 
         sub_emb = embeddings[mask]
+        sub_dist = cosine_distances(sub_emb).astype(np.float64)
         sub_clusterer = hdbscan.HDBSCAN(
             min_cluster_size=min_size,
-            metric="euclidean",
+            metric="precomputed",
+            cluster_selection_method="leaf",
         )
-        sub_labels = sub_clusterer.fit_predict(sub_emb)
+        sub_labels = sub_clusterer.fit_predict(sub_dist)
 
         # absorb sub-noise into nearest sub-cluster
         sub_real = {int(l) for l in sub_labels if l != -1}

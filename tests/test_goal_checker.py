@@ -1,7 +1,5 @@
 """Tests for src/goal_checker.py"""
 
-import json
-
 import pytest
 
 from src.goal_checker import (
@@ -12,7 +10,7 @@ from src.goal_checker import (
     check_goal_achieved,
 )
 from src.llm import DEFAULT_MODEL
-from tests.conftest import preseed_complete_tool
+from tests.helpers import preseed_complete_tool
 
 
 # ── Unit tests: _format_messages_for_prompt ──────────────────────────

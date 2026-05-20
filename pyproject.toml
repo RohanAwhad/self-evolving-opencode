@@ -1,0 +1,16 @@
+[project]
+name = "self-evolving-opencode"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic[vertex]>=0.103.1",
+    "hdbscan>=0.8.40",
+    "numpy>=1.26",
+    "scikit-learn>=1.5",
+    "sentence-transformers>=3.0",
+    "redis>=5.0",
+    "loguru>=0.7",
+    "tenacity>=9.1.4",
+]

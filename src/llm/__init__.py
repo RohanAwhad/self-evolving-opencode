@@ -3,7 +3,7 @@
 import json
 import os
 
-from anthropic import AnthropicVertex
+from anthropic import AsyncAnthropicVertex
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter, before_sleep_log
 
@@ -27,25 +27,25 @@ _retry = retry(
 def get_client(
     project_id: str = DEFAULT_PROJECT,
     region: str = DEFAULT_REGION,
-) -> AnthropicVertex:
-    """Create an AnthropicVertex client."""
-    return AnthropicVertex(project_id=project_id, region=region)
+) -> AsyncAnthropicVertex:
+    """Create an AsyncAnthropicVertex client."""
+    return AsyncAnthropicVertex(project_id=project_id, region=region)
 
 
 @_retry
-def _call_complete(client: AnthropicVertex, kwargs: dict) -> str:
-    response = client.messages.create(**kwargs)
+async def _call_complete(client: AsyncAnthropicVertex, kwargs: dict) -> str:
+    response = await client.messages.create(**kwargs)
     return response.content[0].text
 
 
 @_retry
-def _call_complete_tool(client: AnthropicVertex, kwargs: dict) -> dict:
-    response = client.messages.create(**kwargs)
+async def _call_complete_tool(client: AsyncAnthropicVertex, kwargs: dict) -> dict:
+    response = await client.messages.create(**kwargs)
     tool_block = next(b for b in response.content if b.type == "tool_use")
     return tool_block.input
 
 
-def complete(
+async def complete(
     messages: list[dict],
     model: str = DEFAULT_MODEL,
     max_tokens: int = 4096,
@@ -60,7 +60,7 @@ def complete(
             "complete",
             messages=messages, model=model, max_tokens=max_tokens, system=system,
         )
-        hit = cache_get(_redis, key)
+        hit = await cache_get(_redis, key)
         if hit is not None:
             logger.debug("Cache hit for complete (key={})", key[:40])
             return hit
@@ -74,15 +74,15 @@ def complete(
     }
     if system is not None:
         kwargs["system"] = system
-    result = _call_complete(client, kwargs)
+    result = await _call_complete(client, kwargs)
 
     if use_cache:
-        cache_set(_redis, key, result)
+        await cache_set(_redis, key, result)
 
     return result
 
 
-def complete_tool(
+async def complete_tool(
     messages: list[dict],
     tool: dict,
     model: str = DEFAULT_MODEL,
@@ -103,7 +103,7 @@ def complete_tool(
             messages=messages, tool=tool, model=model,
             max_tokens=max_tokens, system=system,
         )
-        hit = cache_get(_redis, key)
+        hit = await cache_get(_redis, key)
         if hit is not None:
             logger.debug("Cache hit for complete_tool (key={})", key[:40])
             return json.loads(hit)
@@ -119,10 +119,10 @@ def complete_tool(
     }
     if system is not None:
         kwargs["system"] = system
-    result = _call_complete_tool(client, kwargs)
+    result = await _call_complete_tool(client, kwargs)
 
     if use_cache:
-        cache_set(_redis, key, json.dumps(result, sort_keys=True))
+        await cache_set(_redis, key, json.dumps(result, sort_keys=True))
 
     return result
 

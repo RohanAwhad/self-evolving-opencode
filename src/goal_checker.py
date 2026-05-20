@@ -50,7 +50,7 @@ def _format_messages_for_prompt(messages: list[dict]) -> str:
     return "\n\n".join(lines)
 
 
-def check_goal_achieved(
+async def check_goal_achieved(
     messages: list[dict],
     goal: str,
     model: str = DEFAULT_MODEL,
@@ -69,7 +69,7 @@ def check_goal_achieved(
     """
     transcript = _format_messages_for_prompt(messages)
 
-    result = complete_tool(
+    result = await complete_tool(
         messages=[
             {
                 "role": "user",

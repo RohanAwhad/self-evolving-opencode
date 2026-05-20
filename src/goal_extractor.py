@@ -38,16 +38,16 @@ EXTRACT_GOALS_TOOL = {
 }
 
 
-def extract_goals(
+async def extract_goals(
     session_id: str,
     db_path: Path = DB_PATH,
     model: str = DEFAULT_MODEL,
     max_tokens: int = 4096,
 ) -> list[Goal]:
     """Call Claude via Vertex to extract goals from a conversation."""
-    transcript = get_conversation_transcript(session_id, db_path=db_path)
+    transcript = await get_conversation_transcript(session_id, db_path=db_path)
 
-    result = complete_tool(
+    result = await complete_tool(
         messages=[
             {
                 "role": "user",

@@ -1,5 +1,6 @@
 """Shared DB access layer for OpenCode's SQLite database."""
 
+import asyncio
 import json
 import re
 import sqlite3
@@ -25,7 +26,7 @@ class Session:
     message_count: int
 
 
-def get_sessions(limit: int = 50, db_path: Path = DB_PATH) -> list[Session]:
+def _get_sessions_sync(limit: int, db_path: Path) -> list[Session]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
@@ -76,8 +77,11 @@ def get_sessions(limit: int = 50, db_path: Path = DB_PATH) -> list[Session]:
     return sessions
 
 
-def get_messages_for_session(session_id: str, db_path: Path = DB_PATH) -> list[dict]:
-    """Load all messages for a session as list[dict] with role/content keys."""
+async def get_sessions(limit: int = 50, db_path: Path = DB_PATH) -> list[Session]:
+    return await asyncio.to_thread(_get_sessions_sync, limit, db_path)
+
+
+def _get_messages_for_session_sync(session_id: str, db_path: Path) -> list[dict]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
@@ -115,8 +119,80 @@ def get_messages_for_session(session_id: str, db_path: Path = DB_PATH) -> list[d
     return result
 
 
-def get_conversation_transcript(session_id: str, db_path: Path = DB_PATH) -> str:
-    """Load messages+parts for a session, return a human-readable transcript."""
+async def get_messages_for_session(session_id: str, db_path: Path = DB_PATH) -> list[dict]:
+    """Load all messages for a session as list[dict] with role/content keys."""
+    return await asyncio.to_thread(_get_messages_for_session_sync, session_id, db_path)
+
+
+def _parse_tool_part(pdata: dict) -> dict:
+    """Parse a tool part into a structured dict."""
+    state = pdata.get("state", {})
+    return {
+        "type": "tool",
+        "tool": pdata.get("tool", "unknown"),
+        "call_id": pdata.get("callID", ""),
+        "status": state.get("status", ""),
+        "input": state.get("input", {}),
+        "output": state.get("output", ""),
+        "title": state.get("title", ""),
+    }
+
+
+def _parse_part(pdata: dict) -> dict | None:
+    """Parse a raw part JSON into a structured dict, or None to skip."""
+    ptype = pdata.get("type", "")
+    if ptype == "text" and pdata.get("text"):
+        return {"type": "text", "text": pdata["text"]}
+    if ptype == "tool":
+        return _parse_tool_part(pdata)
+    if ptype == "reasoning" and pdata.get("text"):
+        return {"type": "reasoning", "text": pdata["text"]}
+    # skip step-start, step-finish, compaction, patch, file, agent, subtask
+    return None
+
+
+def _get_rich_messages_for_session_sync(session_id: str, db_path: Path) -> list[dict]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    messages = conn.execute(
+        """
+        SELECT m.id, json_extract(m.data, '$.role') AS role
+        FROM message m
+        WHERE m.session_id = ?
+        ORDER BY m.time_created ASC
+        """,
+        (session_id,),
+    ).fetchall()
+
+    result: list[dict] = []
+    for msg in messages:
+        role = msg["role"] or "unknown"
+        raw_parts = conn.execute(
+            "SELECT data FROM part WHERE message_id = ? ORDER BY time_created ASC",
+            (msg["id"],),
+        ).fetchall()
+
+        parts: list[dict] = []
+        for p in raw_parts:
+            pdata = json.loads(p["data"]) if isinstance(p["data"], str) else p["data"]
+            parsed = _parse_part(pdata)
+            if parsed is not None:
+                parts.append(parsed)
+
+        if parts:
+            result.append({"role": role, "parts": parts})
+
+    conn.close()
+    return result
+
+
+async def get_rich_messages_for_session(session_id: str, db_path: Path = DB_PATH) -> list[dict]:
+    """Load messages with full part details (text, tool calls w/ input/output, reasoning)."""
+    return await asyncio.to_thread(_get_rich_messages_for_session_sync, session_id, db_path)
+
+
+def _get_conversation_transcript_sync(session_id: str, db_path: Path) -> str:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
@@ -153,6 +229,11 @@ def get_conversation_transcript(session_id: str, db_path: Path = DB_PATH) -> str
 
     conn.close()
     return "\n".join(lines)
+
+
+async def get_conversation_transcript(session_id: str, db_path: Path = DB_PATH) -> str:
+    """Load messages+parts for a session, return a human-readable transcript."""
+    return await asyncio.to_thread(_get_conversation_transcript_sync, session_id, db_path)
 
 
 def parse_message_range(range_str: str) -> tuple[int, int]:

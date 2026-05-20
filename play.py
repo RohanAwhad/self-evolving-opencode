@@ -1,9 +1,11 @@
 """List OpenCode conversations and extract goals from sessions."""
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
 from src.goal_checker import check_goal_achieved
+from src.goal_clusterer import cluster_goals
 from src.goal_extractor import extract_goals
 from src.opencode_db import get_messages_for_session, get_sessions, slice_messages
 
@@ -32,10 +34,10 @@ def fmt_tokens(n: int) -> str:
     return str(n)
 
 
-def process_goals(session_id: str, check: bool = False) -> None:
+async def process_goals(session_id: str, check: bool = False) -> None:
     """Extract goals from a session and optionally check if achieved."""
     print(f"Extracting goals from session {session_id}...")
-    goals = extract_goals(session_id)
+    goals = await extract_goals(session_id)
 
     if not check:
         for i, g in enumerate(goals, 1):
@@ -43,20 +45,20 @@ def process_goals(session_id: str, check: bool = False) -> None:
             print(f"     {g.description}")
         return
 
-    all_messages = get_messages_for_session(session_id)
+    all_messages = await get_messages_for_session(session_id)
     print(f"Loaded {len(all_messages)} messages. Checking {len(goals)} goals...\n")
 
     for i, g in enumerate(goals, 1):
         msgs_slice = slice_messages(all_messages, g.message_range)
         goal_text = f"{g.title}: {g.description}"
-        result = check_goal_achieved(msgs_slice, goal_text)
+        result = await check_goal_achieved(msgs_slice, goal_text)
         status = "ACHIEVED" if result.achieved else "NOT ACHIEVED"
         print(f"  {i}. [{g.message_range}] {g.title}")
         print(f"     {g.description}")
         print(f"     -> {status}: {result.reasoning}")
 
 
-def main() -> None:
+async def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="List OpenCode conversations")
@@ -69,6 +71,12 @@ def main() -> None:
                         help="Extract goals from multiple sessions (file with one session ID per line)")
     parser.add_argument("--check", action="store_true",
                         help="With --goals/--goals-file: also check if each goal was achieved")
+    parser.add_argument("--cluster", action="store_true",
+                        help="With --goals-file: cluster extracted goals by similarity")
+    parser.add_argument("--min-cluster-size", type=int, default=5,
+                        help="Minimum cluster size; smaller clusters merge (default: 5)")
+    parser.add_argument("--max-cluster-size", type=int, default=100,
+                        help="Maximum cluster size; larger clusters split (default: 100)")
     args = parser.parse_args()
 
     # Handle --goals-file mode
@@ -76,10 +84,30 @@ def main() -> None:
         lines = Path(args.goals_file).read_text().splitlines()
         session_ids = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
         print(f"Processing {len(session_ids)} sessions from {args.goals_file}\n")
-        for sid in session_ids:
-            print(f"=== Session {sid} ===")
-            process_goals(sid, check=args.check)
-            print()
+
+        if args.cluster:
+            all_goals: list[str] = []
+            for sid in session_ids:
+                goals = await extract_goals(sid)
+                all_goals.extend(f"{g.title}: {g.description}" for g in goals)
+            print(f"Collected {len(all_goals)} goals. Clustering...\n")
+
+            result = cluster_goals(
+                all_goals,
+                min_cluster_size=args.min_cluster_size,
+                max_cluster_size=args.max_cluster_size,
+            )
+            for cid, goals in sorted(result.clusters.items()):
+                print(f"Cluster {cid + 1} ({len(goals)} goals):")
+                for j, g in enumerate(goals, 1):
+                    print(f"  {j}. {g}")
+                print()
+            print(f"{len(result.clusters)} clusters, {len(all_goals)} goals total")
+        else:
+            for sid in session_ids:
+                print(f"=== Session {sid} ===")
+                await process_goals(sid, check=args.check)
+                print()
         return
 
     # Handle --goals mode
@@ -89,7 +117,7 @@ def main() -> None:
         if sid.isdigit() and int(sid) <= 500:
             idx = int(sid) - 1
             has_filter = args.dir or args.agent
-            all_sessions = get_sessions(limit=2000 if has_filter else 500)
+            all_sessions = await get_sessions(limit=2000 if has_filter else 500)
             if args.dir:
                 all_sessions = [s for s in all_sessions if args.dir in s.directory]
             if args.agent:
@@ -100,11 +128,11 @@ def main() -> None:
             sid = all_sessions[idx].id
             print(f"Session: {all_sessions[idx].title} ({sid})")
 
-        process_goals(sid, check=args.check)
+        await process_goals(sid, check=args.check)
         return
 
     has_filter = args.dir or args.agent
-    sessions = get_sessions(limit=args.limit if not has_filter else 2000)
+    sessions = await get_sessions(limit=args.limit if not has_filter else 2000)
 
     if args.dir:
         sessions = [s for s in sessions if args.dir in s.directory]
@@ -125,4 +153,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

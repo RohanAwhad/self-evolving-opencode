@@ -1,0 +1,10 @@
+{
+  "achieved_true": {
+    "achieved": true,
+    "reasoning": "The conversation shows the user successfully implemented the feature and all tests passed."
+  },
+  "achieved_false": {
+    "achieved": false,
+    "reasoning": "The conversation shows the user attempted the task but encountered errors that were not resolved."
+  }
+}

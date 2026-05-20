@@ -14,3 +14,17 @@ dependencies = [
     "loguru>=0.7",
     "tenacity>=9.1.4",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "redis: requires Redis on localhost:6380",
+    "live: calls real LLM API (slow, expensive)",
+]
+addopts = "-m 'not live'"

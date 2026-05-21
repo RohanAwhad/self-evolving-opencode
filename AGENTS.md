@@ -41,13 +41,10 @@ Everything is **async** — entry via `asyncio.run(main())`.
 
 ## Conventions
 
-- **Configurable defaults** (see `CLAUDE.md`): every tunable parameter must be a function/constructor parameter with a sensible default. Never hardcode inline.
+- **Configurable defaults**: every tunable parameter must be a function/constructor parameter with a sensible default. Never hardcode inline.
 - LLM model: `claude-opus-4-6@default` via **Vertex AI** (not direct Anthropic API).
 - Requires GCP auth: `gcloud auth application-default login`.
 - Env vars (defaults usually set in zshrc): `ANTHROPIC_VERTEX_PROJECT_ID` (`itpc-gcp-ai-eng-claude`), `GOOGLE_VERTEX_LOCATION` (`global`).
 - Redis env vars: `REDIS_HOST` (`localhost`), `REDIS_PORT` (`6380`).
 - Python 3.12, managed by `uv`. No pip, no poetry.
-
-## Current state
-
 - No tests, no CI, no linting/formatting config.

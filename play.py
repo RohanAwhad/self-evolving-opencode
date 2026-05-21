@@ -4,10 +4,16 @@ import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.conversation_summarizer import summarize_conversation
 from src.goal_checker import check_goal_achieved
 from src.goal_clusterer import cluster_goals
-from src.goal_extractor import extract_goals
-from src.opencode_db import get_messages_for_session, get_sessions, slice_messages
+from src.goal_extractor import Goal, extract_goals
+from src.opencode_db import (
+    get_messages_for_session,
+    get_rich_messages_for_session,
+    get_sessions,
+    slice_messages,
+)
 
 
 def fmt_time(ts: str | int | float) -> str:
@@ -34,28 +40,43 @@ def fmt_tokens(n: int) -> str:
     return str(n)
 
 
-async def process_goals(session_id: str, check: bool = False) -> None:
-    """Extract goals from a session and optionally check if achieved."""
+async def summarize_thread(session_id: str, goal: Goal) -> str:
+    """Summarize a single thread (goal segment) from a session."""
+    rich_msgs = await get_rich_messages_for_session(session_id)
+    thread_msgs = slice_messages(rich_msgs, goal.message_range)
+    return await summarize_conversation(thread_msgs)
+
+
+async def process_goals(session_id: str, check: bool = False, summarize: bool = False) -> None:
+    """Extract goals from a session and optionally check/summarize."""
     print(f"Extracting goals from session {session_id}...")
     goals = await extract_goals(session_id)
 
-    if not check:
+    if not check and not summarize:
         for i, g in enumerate(goals, 1):
             print(f"  {i}. [{g.message_range}] {g.title}")
             print(f"     {g.description}")
         return
 
-    all_messages = await get_messages_for_session(session_id)
-    print(f"Loaded {len(all_messages)} messages. Checking {len(goals)} goals...\n")
+    if check:
+        all_messages = await get_messages_for_session(session_id)
+        print(f"Loaded {len(all_messages)} messages. Checking {len(goals)} goals...\n")
 
     for i, g in enumerate(goals, 1):
-        msgs_slice = slice_messages(all_messages, g.message_range)
-        goal_text = f"{g.title}: {g.description}"
-        result = await check_goal_achieved(msgs_slice, goal_text)
-        status = "ACHIEVED" if result.achieved else "NOT ACHIEVED"
         print(f"  {i}. [{g.message_range}] {g.title}")
         print(f"     {g.description}")
-        print(f"     -> {status}: {result.reasoning}")
+
+        if check:
+            msgs_slice = slice_messages(all_messages, g.message_range)
+            goal_text = f"{g.title}: {g.description}"
+            result = await check_goal_achieved(msgs_slice, goal_text)
+            status = "ACHIEVED" if result.achieved else "NOT ACHIEVED"
+            print(f"     -> {status}: {result.reasoning}")
+
+        if summarize:
+            print(f"     Summarizing thread...")
+            summary = await summarize_thread(session_id, g)
+            print(f"\n{summary}\n")
 
 
 async def main() -> None:
@@ -73,6 +94,8 @@ async def main() -> None:
                         help="With --goals/--goals-file: also check if each goal was achieved")
     parser.add_argument("--cluster", action="store_true",
                         help="With --goals-file: cluster extracted goals by similarity")
+    parser.add_argument("--summarize", action="store_true",
+                        help="Summarize each thread (goal segment) via LLM")
     parser.add_argument("--min-cluster-size", type=int, default=5,
                         help="Minimum cluster size; smaller clusters merge (default: 5)")
     parser.add_argument("--max-cluster-size", type=int, default=100,
@@ -85,28 +108,42 @@ async def main() -> None:
         session_ids = [l.strip() for l in lines if l.strip() and not l.strip().startswith("#")]
         print(f"Processing {len(session_ids)} sessions from {args.goals_file}\n")
 
+        # Extract goals from all sessions, tracking provenance
+        all_goal_texts: list[str] = []
+        goal_sources: list[tuple[str, Goal]] = []  # (session_id, Goal)
+        for sid in session_ids:
+            goals = await extract_goals(sid)
+            for g in goals:
+                text = f"{g.title}: {g.description}"
+                all_goal_texts.append(text)
+                goal_sources.append((sid, g))
+
         if args.cluster:
-            all_goals: list[str] = []
-            for sid in session_ids:
-                goals = await extract_goals(sid)
-                all_goals.extend(f"{g.title}: {g.description}" for g in goals)
-            print(f"Collected {len(all_goals)} goals. Clustering...\n")
+            print(f"Collected {len(all_goal_texts)} goals. Clustering...\n")
 
             result = cluster_goals(
-                all_goals,
+                all_goal_texts,
                 min_cluster_size=args.min_cluster_size,
                 max_cluster_size=args.max_cluster_size,
             )
-            for cid, goals in sorted(result.clusters.items()):
-                print(f"Cluster {cid + 1} ({len(goals)} goals):")
-                for j, g in enumerate(goals, 1):
-                    print(f"  {j}. {g}")
+            # Build index: goal_text -> (session_id, Goal) for lookups
+            text_to_source = {text: src for text, src in zip(all_goal_texts, goal_sources)}
+
+            for cid, cluster_goals_list in sorted(result.clusters.items()):
+                print(f"Cluster {cid + 1} ({len(cluster_goals_list)} goals):")
+                for j, g_text in enumerate(cluster_goals_list, 1):
+                    print(f"  {j}. {g_text}")
+                    if args.summarize and g_text in text_to_source:
+                        sid, goal = text_to_source[g_text]
+                        print(f"     Summarizing thread [{goal.message_range}]...")
+                        summary = await summarize_thread(sid, goal)
+                        print(f"\n{summary}\n")
                 print()
-            print(f"{len(result.clusters)} clusters, {len(all_goals)} goals total")
+            print(f"{len(result.clusters)} clusters, {len(all_goal_texts)} goals total")
         else:
             for sid in session_ids:
                 print(f"=== Session {sid} ===")
-                await process_goals(sid, check=args.check)
+                await process_goals(sid, check=args.check, summarize=args.summarize)
                 print()
         return
 
@@ -128,7 +165,7 @@ async def main() -> None:
             sid = all_sessions[idx].id
             print(f"Session: {all_sessions[idx].title} ({sid})")
 
-        await process_goals(sid, check=args.check)
+        await process_goals(sid, check=args.check, summarize=args.summarize)
         return
 
     has_filter = args.dir or args.agent

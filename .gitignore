@@ -3,3 +3,5 @@
 __pycache__/
 *.pyc
 logs/
+/.coverage
+/docs/RESEARCH_equity_apartments_roommate_finder.md

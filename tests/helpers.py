@@ -25,3 +25,24 @@ async def preseed_complete_tool(
     await cache_set(r, key, json.dumps(response, sort_keys=True))
     seeded_keys.append(key)
     return key
+
+
+async def preseed_complete(
+    r,
+    seeded_keys: list[str],
+    *,
+    messages: list[dict],
+    model: str,
+    max_tokens: int,
+    system: str | None,
+    response: str,
+) -> str:
+    """Pre-seed Redis cache for a complete call. Returns the cache key."""
+    key = cache_key(
+        "complete",
+        messages=messages, model=model,
+        max_tokens=max_tokens, system=system,
+    )
+    await cache_set(r, key, response)
+    seeded_keys.append(key)
+    return key

@@ -18,6 +18,8 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if "live" in config.getoption("-m", ""):
+        return
     skip_live = pytest.mark.skip(reason="live LLM tests not requested (pass -m live)")
     for item in items:
         if "live" in item.keywords:

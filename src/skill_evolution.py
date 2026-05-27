@@ -59,6 +59,7 @@ def _ensure_skills_dir(skills_dir: Path) -> None:
 def _write_skill_md(skill_name: str, content: str, skills_dir: Path) -> None:
     if DRY_RUN:
         logger.info("DRY_RUN: would write {}/SKILL.md ({:,} chars)", skill_name, len(content))
+        print(f"\n--- {skill_name}/SKILL.md ---\n{content}\n--- end ---\n")
         return
     skill_path = skills_dir / skill_name / "SKILL.md"
     skill_path.parent.mkdir(parents=True, exist_ok=True)

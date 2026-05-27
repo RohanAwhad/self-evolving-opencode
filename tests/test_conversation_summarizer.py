@@ -3,15 +3,14 @@
 import pytest
 
 from src.conversation_summarizer import (
-    SUMMARY_END_TAG,
-    SUMMARY_START_TAG,
+    SUMMARIZE_TOOL,
     SYSTEM_PROMPT,
-    _extract_summary,
+    _build_markdown,
     _format_rich_messages,
     summarize_conversation,
 )
 from src.llm import DEFAULT_MODEL
-from tests.helpers import preseed_complete
+from tests.helpers import preseed_complete_tool
 
 
 # ---------------------------------------------------------------------------
@@ -144,42 +143,47 @@ class TestFormatRichMessages:
 
 
 # ---------------------------------------------------------------------------
-# _extract_summary
+# _build_markdown
 # ---------------------------------------------------------------------------
 
 
-class TestExtractSummary:
-    def test_extracts_between_tags(self):
-        response = f"preamble\n{SUMMARY_START_TAG}\n## Goal\nDo stuff\n{SUMMARY_END_TAG}\npostamble"
-        result = _extract_summary(response)
-        assert result == "## Goal\nDo stuff"
+class TestBuildMarkdown:
+    def test_all_sections(self):
+        data = {
+            "goal": "Fix login bug",
+            "intent": "Users can't log in",
+            "what_happened": "Traced through auth flow",
+            "user_messages": ["Fix the login", "Try the staging server"],
+            "assistant_actions": ["Read logs", "Fixed the handler"],
+            "tool_usage": ["bash: ran pytest — 3 passed"],
+            "outcome": "Fixed successfully",
+            "evaluation_criteria": ["Login works", "No regressions"],
+        }
+        result = _build_markdown(data)
+        assert "## Goal\nFix login bug" in result
+        assert "## Intent\nUsers can't log in" in result
+        assert "## What Happened\nTraced through auth flow" in result
+        assert "1. Fix the login" in result
+        assert "2. Try the staging server" in result
+        assert "1. Read logs" in result
+        assert "## Outcome\nFixed successfully" in result
+        assert "- Login works" in result
 
-    def test_strips_whitespace(self):
-        response = f"{SUMMARY_START_TAG}\n  content  \n{SUMMARY_END_TAG}"
-        result = _extract_summary(response)
-        assert result == "content"
-
-    def test_missing_tags_returns_raw(self):
-        response = "Just some text without tags"
-        result = _extract_summary(response)
-        assert result == "Just some text without tags"
-
-    def test_empty_between_tags(self):
-        response = f"{SUMMARY_START_TAG}\n\n{SUMMARY_END_TAG}"
-        result = _extract_summary(response)
-        assert result == ""
-
-    def test_only_start_tag_returns_raw(self):
-        response = f"{SUMMARY_START_TAG}\ncontent without end tag"
-        result = _extract_summary(response)
-        # No end tag → fallback to raw
-        assert SUMMARY_START_TAG in result
-
-    def test_multiline_content(self):
-        content = "## Goal\nFix bug\n\n## Outcome\nFixed"
-        response = f"{SUMMARY_START_TAG}\n{content}\n{SUMMARY_END_TAG}"
-        result = _extract_summary(response)
-        assert result == content
+    def test_empty_lists(self):
+        data = {
+            "goal": "Test",
+            "intent": "Test intent",
+            "what_happened": "Nothing",
+            "user_messages": [],
+            "assistant_actions": [],
+            "tool_usage": [],
+            "outcome": "N/A",
+            "evaluation_criteria": [],
+        }
+        result = _build_markdown(data)
+        assert "## Goal\nTest" in result
+        assert "## User Messages" not in result
+        assert "## Tool Usage" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +193,7 @@ class TestExtractSummary:
 
 class TestSummarizeConversation:
     @pytest.mark.redis
-    async def test_returns_extracted_summary(self, redis_client):
+    async def test_returns_structured_summary(self, redis_client):
         r, seeded_keys = redis_client
 
         messages = [
@@ -207,13 +211,22 @@ class TestSummarizeConversation:
         transcript = _format_rich_messages(messages)
         llm_messages = [{"role": "user", "content": f"Summarize this conversation:\n\n{transcript}"}]
 
-        fake_summary = "## Goal\nFix login bug\n\n## Outcome\nFixed successfully"
-        fake_response = f"{SUMMARY_START_TAG}\n{fake_summary}\n{SUMMARY_END_TAG}"
+        fake_response = {
+            "goal": "Fix login bug",
+            "intent": "Users can't log in",
+            "what_happened": "Traced through auth flow",
+            "user_messages": ["Fix the login bug"],
+            "assistant_actions": ["Searched for login code"],
+            "tool_usage": ["bash: grep -r login — found 3 matches"],
+            "outcome": "Fixed successfully",
+            "evaluation_criteria": ["Login works"],
+        }
 
-        await preseed_complete(
+        await preseed_complete_tool(
             r,
             seeded_keys,
             messages=llm_messages,
+            tool=SUMMARIZE_TOOL,
             model=DEFAULT_MODEL,
             max_tokens=8192,
             system=SYSTEM_PROMPT,
@@ -221,7 +234,8 @@ class TestSummarizeConversation:
         )
 
         result = await summarize_conversation(messages)
-        assert result == fake_summary
+        assert "## Goal\nFix login bug" in result
+        assert "## Outcome\nFixed successfully" in result
 
     @pytest.mark.redis
     async def test_custom_model_and_max_tokens(self, redis_client):
@@ -234,15 +248,25 @@ class TestSummarizeConversation:
         transcript = _format_rich_messages(messages)
         llm_messages = [{"role": "user", "content": f"Summarize this conversation:\n\n{transcript}"}]
 
-        fake_response = f"{SUMMARY_START_TAG}\nshort summary\n{SUMMARY_END_TAG}"
-
         custom_model = "claude-sonnet-4-20250514"
         custom_max_tokens = 2048
 
-        await preseed_complete(
+        fake_response = {
+            "goal": "Greeting",
+            "intent": "Say hello",
+            "what_happened": "User said hello",
+            "user_messages": ["Hello"],
+            "assistant_actions": [],
+            "tool_usage": [],
+            "outcome": "Greeted",
+            "evaluation_criteria": [],
+        }
+
+        await preseed_complete_tool(
             r,
             seeded_keys,
             messages=llm_messages,
+            tool=SUMMARIZE_TOOL,
             model=custom_model,
             max_tokens=custom_max_tokens,
             system=SYSTEM_PROMPT,
@@ -252,4 +276,4 @@ class TestSummarizeConversation:
         result = await summarize_conversation(
             messages, model=custom_model, max_tokens=custom_max_tokens
         )
-        assert result == "short summary"
+        assert "## Goal\nGreeting" in result

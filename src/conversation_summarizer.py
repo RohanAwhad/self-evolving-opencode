@@ -1,54 +1,51 @@
 """Summarize a conversation from rich messages into a markdown report."""
 
-import re
-
 from loguru import logger
 
-from src.llm import DEFAULT_MODEL, complete
+from src.llm import DEFAULT_MODEL, complete_tool
 
 
-SUMMARY_START_TAG = "<|CONVERSATION_SUMMARY_SEA_START|>"
-SUMMARY_END_TAG = "<|CONVERSATION_SUMMARY_SEA_END|>"
+SUMMARIZE_TOOL = {
+    "name": "summarize_conversation",
+    "description": "Return a structured summary of the conversation.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "goal": {"type": "string", "description": "What the user was trying to achieve (1-2 sentences)"},
+            "intent": {"type": "string", "description": "Underlying motivation — why they wanted this"},
+            "what_happened": {"type": "string", "description": "Narrative of the conversation flow: attempts, pivots, decisions"},
+            "user_messages": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Numbered summaries of each user message",
+            },
+            "assistant_actions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Numbered summaries of each assistant action",
+            },
+            "tool_usage": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Key tool calls: tool name, input summary, result summary",
+            },
+            "outcome": {"type": "string", "description": "Final result — completed? partially? what was produced?"},
+            "evaluation_criteria": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Criteria to judge if this conversation was successful",
+            },
+        },
+        "required": ["goal", "intent", "what_happened", "user_messages", "assistant_actions", "tool_usage", "outcome", "evaluation_criteria"],
+    },
+}
 
 SYSTEM_PROMPT = """\
 You are a conversation analyst. You receive a transcript of a coding-assistant \
-conversation (with tool calls and their results) and produce a detailed markdown summary.
+conversation (with tool calls and their results) and produce a detailed summary.
 
-Your summary MUST be enclosed in these exact tags:
-{start_tag}
-<your markdown here>
-{end_tag}
-
-The markdown MUST contain these sections in order:
-
-## Goal
-What the user was ultimately trying to achieve. One or two sentences.
-
-## Intent
-The underlying motivation — why they wanted this, what problem they were solving.
-
-## What Happened
-A narrative of the conversation flow: what was attempted, what worked, what didn't, \
-key decision points, and pivots.
-
-## User Messages
-A numbered list summarizing each user message (what they asked/said/clarified).
-
-## Assistant Actions
-A numbered list summarizing each assistant reply (what it did, proposed, or explained).
-
-## Tool Usage
-A numbered list of tool calls made, grouped logically. For each: the tool name, \
-what it was called with (brief), and what the result was (brief). \
-Skip trivial/duplicate calls — focus on ones that drove the conversation forward.
-
-## Outcome
-What was the final result — was the task completed? Partially? What was produced?
-
-## Evaluation Criteria
-A bullet list of criteria an evaluator could use to judge whether this conversation \
-was successful. Derive these from the user's stated and implied requirements.
-""".format(start_tag=SUMMARY_START_TAG, end_tag=SUMMARY_END_TAG)
+Analyze the conversation and extract each section carefully. \
+For tool_usage, skip trivial/duplicate calls — focus on ones that drove the conversation forward."""
 
 
 def _format_rich_messages(messages: list[dict]) -> str:
@@ -102,14 +99,36 @@ def _format_rich_messages(messages: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _extract_summary(response: str) -> str:
-    """Extract markdown between the summary tags, or return raw response."""
-    pattern = re.escape(SUMMARY_START_TAG) + r"(.*?)" + re.escape(SUMMARY_END_TAG)
-    match = re.search(pattern, response, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    logger.warning("Summary tags not found in LLM response, returning raw output")
-    return response.strip()
+def _build_markdown(data: dict) -> str:
+    """Assemble structured tool output into markdown."""
+    sections: list[str] = []
+    sections.append(f"## Goal\n{data.get('goal', '')}")
+    sections.append(f"## Intent\n{data.get('intent', '')}")
+    sections.append(f"## What Happened\n{data.get('what_happened', '')}")
+
+    user_msgs = data.get("user_messages", [])
+    if user_msgs:
+        items = "\n".join(f"{i}. {m}" for i, m in enumerate(user_msgs, 1))
+        sections.append(f"## User Messages\n{items}")
+
+    actions = data.get("assistant_actions", [])
+    if actions:
+        items = "\n".join(f"{i}. {a}" for i, a in enumerate(actions, 1))
+        sections.append(f"## Assistant Actions\n{items}")
+
+    tools = data.get("tool_usage", [])
+    if tools:
+        items = "\n".join(f"{i}. {t}" for i, t in enumerate(tools, 1))
+        sections.append(f"## Tool Usage\n{items}")
+
+    sections.append(f"## Outcome\n{data.get('outcome', '')}")
+
+    criteria = data.get("evaluation_criteria", [])
+    if criteria:
+        items = "\n".join(f"- {c}" for c in criteria)
+        sections.append(f"## Evaluation Criteria\n{items}")
+
+    return "\n\n".join(sections)
 
 
 async def summarize_conversation(
@@ -133,11 +152,12 @@ async def summarize_conversation(
     transcript = _format_rich_messages(messages)
     logger.debug("Transcript length: {} chars, {} messages", len(transcript), len(messages))
 
-    result = await complete(
+    result = await complete_tool(
         messages=[{"role": "user", "content": f"Summarize this conversation:\n\n{transcript}"}],
+        tool=SUMMARIZE_TOOL,
         model=model,
         max_tokens=max_tokens,
         system=system or SYSTEM_PROMPT,
     )
 
-    return _extract_summary(result)
+    return _build_markdown(result)

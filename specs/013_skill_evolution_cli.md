@@ -2,136 +2,119 @@
 
 ## Purpose
 
-New CLI modes for initial run (skill bootstrapping from all past conversations) and periodic runs (ongoing refinement from new conversations).
+Single `--evolve` mode that runs two independent queues: synthesizer (creates/updates workflows from raw threads) and evolve (reflector → curator for rule management). Sequential execution to avoid race conditions on SKILL.md writes.
 
-## New Flags
-
-| Flag | Description |
-|---|---|
-| `--evolve` | Run skill evolution pipeline (default: periodic mode) |
-| `--first-time` | With `--evolve`: run initial bootstrapping over all past conversations |
-| `--min-cluster-size N` | Minimum goals per cluster for skill synthesis (default: 3) |
-| `--max-threads-per-cluster N` | Max conversation summaries fed to synthesizer (default: 5) |
-| `--skills-dir PATH` | Skills directory (default: ~/.claude/skills/) |
-| `--cluster-id N` | Process only one specific cluster (debug mode) |
-
-## DRY_RUN Mode
-
-Env var `DRY_RUN` controls write behavior:
-
-```
-DRY_RUN=0 (default)  → normal operation; writes skills to disk, updates SQLite
-DRY_RUN=1            → everything runs except: no SKILL.md writes, no DB updates
-```
-
-Used during testing/development. No CLI flag needed — env var is cleaner (sets it once for a session).
-
-## Periodic Run (default)
+## CLI
 
 ```bash
-# Daily run over new sessions
-uv run python play.py --evolve
-
-# Dry run (no writes)
-DRY_RUN=1 uv run python play.py --evolve
-
-# Debug single cluster
-uv run python play.py --evolve --cluster-id 3
+uv run python play.py --evolve [-n N]
 ```
 
-Flow:
+## Two Queues
+
+Each queue has its own `processed_` table. Same session can appear in both queues.
+
+| Queue | Table | Job |
+|---|---|---|
+| Synthesizer | `processed_synthesize` | Extract workflow from ≤10 threads per cluster. Create new skills or update existing workflow. |
+| Evolve | `processed_evolve` | Reflector tags rules per thread, curator adds new rules per skill. |
+
+## Flow
+
 ```
-1. Find new sessions (time_created > last_run AND not in processed_sessions)
-2. For each session:
-   a. Extract goals
-   b. Summarize threads
-   c. Detect invoked skills (tool:skill parts in message data)
-   d. Reflector (tag mode) per thread → rule_tags + insights_by_skill
-   e. Update rule counters in SQLite (unless DRY_RUN)
-   f. Mark session processed (unless DRY_RUN)
-3. Group threads by goal cluster
-4. For each cluster:
-   a. Aggregate insights_by_skill across all threads
-   b. For each skill with insights:
-      Curator → ADD operations
-   c. Write new rules to SKILL.md (unless DRY_RUN)
-   d. Insert new rules into SQLite (unless DRY_RUN)
-5. Print summary: N sessions processed, M rules added, K skills updated
-```
-
-## Initial Run (--first-time)
-
-```bash
-# Full initial run over all sessions
-uv run python play.py --evolve --first-time
-
-# Dry run (no writes)
-DRY_RUN=1 uv run python play.py --evolve --first-time
-
-# Target a specific cluster for testing
-uv run python play.py --evolve --first-time --cluster-id 3
-
-# Limit to specific sessions
-uv run python play.py --evolve --first-time --goals-file sessions.txt
-```
-
-Flow:
-```
-1. Extract goals from sessions (--goals-file or all available)
-2. Cluster all goals
-3. Sort clusters by size DESC
-4. For each cluster (above min size):
-   a. Summarize threads (conversation_summarizer)
-   b. Reflector (no-tag mode) per thread → insights_by_skill
-   c. Synthesize frontmatter (skill_synthesizer phase A)
-   d. Semantic search (skill_registry)
-   e. Decide new/update (skill_registry)
-   f. Synthesize full skill (skill_synthesizer phase D)
-   g. Write SKILL.md (unless DRY_RUN)
-   h. Insert rules into SQLite (unless DRY_RUN)
-   i. Mark sessions processed (unless DRY_RUN)
-5. Print summary: N skills created, M skills updated
+--evolve
+  │
+  │  [Sequential — synthesizer first, then evolve]
+  │
+  ├─► Synthesizer queue
+  │     Find oldest N sessions NOT in processed_synthesize
+  │     Extract goals → cluster
+  │     Per cluster:
+  │       Summarize ≤10 threads
+  │       Semantic search against ~/.claude/skills/
+  │       → no match: Synthesizer → create SKILL.md
+  │       → match: Synthesizer → update workflow
+  │     Mark sessions in processed_synthesize
+  │
+  └─► Evolve queue
+        Find newest M sessions NOT in processed_evolve
+        Detect skills (tool:skill parts)
+        Group threads by goal cluster
+        Reflector per thread → insights_by_skill + rule_tags
+        Aggregate per skill per cluster
+        Curator per skill → ADD rules → update SKILL.md
+        Mark sessions in processed_evolve
 ```
 
-## State Tracking
+## Sequential Execution
 
-CLI must manage:
-- `processed_sessions` table (which sessions have been processed, when, by which skill)
-- `skills.db` for rule counters (in `~/.claude/skills/`)
-- Skills directory for SKILL.md files (`~/.claude/skills/`)
+Synthesizer runs first, evolve second. Both queues can write to the same SKILL.md (synthesizer writes `## Workflow`, curator appends to `## Rules`). Running sequentially avoids race conditions without needing file-level locks.
+
+**Note on async**: Running both queues in parallel (`asyncio.gather`) is possible in theory since they write to different markdown sections. But without file-level locking, concurrent writes could corrupt SKILL.md. Sequential execution is safer. Revisit async when we're fully tested.
+
+## Processed Sessions
+
+Two tables in `~/.claude/skills/skills.db`:
+
+```sql
+CREATE TABLE processed_synthesize (
+    session_id TEXT PRIMARY KEY,
+    processed_at TEXT NOT NULL,
+    skill_name TEXT,
+    action TEXT  -- "created" or "updated"
+);
+
+CREATE TABLE processed_evolve (
+    session_id TEXT PRIMARY KEY,
+    processed_at TEXT NOT NULL,
+    rules_tagged INTEGER DEFAULT 0,
+    rules_added INTEGER DEFAULT 0
+);
+```
+
+## DRY_RUN
+
+```
+DRY_RUN=1 uv run python play.py --evolve   # no writes to disk or DB
+DRY_RUN=0 (default)                          # normal operation
+```
+
+In dry run mode: everything runs (LLM calls, reflector, curator, synthesizer), but SKILL.md writes and SQLite inserts are skipped. Output is printed to stdout.
+
+## Testing
+
+Same pattern as existing modules:
+- Pre-seed Redis cache with LLM responses for reflector, curator, synthesizer, and semantic search
+- Run with `DRY_RUN=1`
+- Assert on printed output (which skills would be created/updated, which rules would be added)
+- Assert no files written to `~/.claude/skills/`
+- Assert no rows in `processed_` tables
+- Use small fixture clusters (2-3 goals, 2-3 threads)
 
 ## Output
 
-### Periodic run output:
 ```
-== Skill Evolution: Periodic ==
-23 new sessions since last run
-45 threads processed, 87 rule tags applied
+== Skill Evolution ==
 
-mcp-debugging: +3 rules (2 sessions)
-branch-context-gathering: +2 rules (4 sessions)
+--- Synthesizer queue ---
+3 unprocessed sessions (oldest first)
+Cluster 1 (2 goals): no match → new skill "mcp-debugging" (12 rules)
+Cluster 2 (1 goal): match "branch-context-gathering" → updated workflow
 
-Summary: 2 skills updated, 5 rules added, 23 sessions marked processed
-```
+--- Evolve queue ---
+5 unprocessed sessions (newest first)
+3 skills with new insights
+  mcp-debugging: +4 rules
+  branch-context-gathering: +2 rules
+  gitlab-api: +1 rule
 
-### Initial run output:
-```
-== Skill Evolution: Initial Run ==
-Processing 234 sessions...
-Extracted 567 goals across 45 clusters
-
-Cluster 1 (23 goals) → new skill "mcp-debugging" (15 rules)
-Cluster 2 (19 goals) → update skill "branch-context-gathering" (+8 rules)
-Cluster 3 (12 goals) → new skill "gitlab-issue-workflow" (11 rules)
-...
-
-Summary: 12 new skills, 8 updated skills, 25 clusters skipped (too small)
+Summary: 1 new skill, 1 workflow updated, 7 rules added, 8 sessions processed
 ```
 
 ## Design Decisions
 
-- **`--evolve` defaults to periodic** — daily mode is the ongoing use case. Initial is a one-off bootstrap, explicitly signaled with `--first-time`.
-- **`DRY_RUN` env var, not CLI flag** — sets once for a session during dev/testing. Cleaner than passing `--dry-run` on every command.
-- **Session filtering**: Both timestamp AND `processed_sessions` table. New sessions = `time_created > last_run` AND `NOT IN processed_sessions`.
-- **Curator grouping**: Threads grouped by goal cluster (inherited from `goal_clusterer`). No separate re-clustering step.
-- **Curator trigger**: Runs immediately after all threads in the cluster are reflected. No N=5 trigger — the cluster IS the batch boundary.
+- **Single `--evolve` flag** — no `--first-time` mode. System auto-detects state from `processed_` tables.
+- **Separate `processed_` tables** — synthesizer and evolve are independent queues. Same session goes through both.
+- **Sequential execution** — avoids race conditions on SKILL.md writes. Async parallelization is noted but not yet implemented.
+- **Synthesizer ≤10 threads** — keeps context window manageable while capturing enough patterns for workflow extraction.
+- **Default `-n` picks sessions based on recency** — oldest first for synthesizer (fill gaps), newest first for evolve (stay current).

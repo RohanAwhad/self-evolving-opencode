@@ -2,62 +2,96 @@
 
 ## Purpose
 
-LLM generates Claude skill files from goal cluster data. Two-phase: frontmatter only (cheap), then full skill (only after destination is known).
+Generates full skills from clusters of conversation threads. Extracts the common workflow across multiple threads at once. Runs independently of the curator (separate queue, separate `processed_` table). Handles both new skill creation and existing skill workflow updates.
+
+## When It Runs
+
+Part of the synthesizer queue in `--evolve`. Processes sessions from oldest to newest. For each goal cluster, examines ≤10 threads to extract the workflow pattern.
 
 ## API
 
-### Phase A: `synthesize_frontmatter(cluster_id, goals, summaries, model) → SkillFrontmatter`
+### `synthesize_skill(cluster_id, goals: list[Goal], thread_summaries: list[str], existing_skill: SkillInfo | None, model) → str`
 
-Input: cluster ID, list of Goal objects, list of conversation summaries (markdown)
-Output: YAML frontmatter with name + description
+Input:
+- Cluster goals + thread summaries (≤10 threads)
+- `existing_skill` = None → create new skill
+- `existing_skill` = SkillInfo → update existing skill's workflow
+
+Output: complete SKILL.md content (frontmatter + workflow + rules section if any)
 
 ```python
 @dataclass
 class SkillFrontmatter:
-    name: str           # kebab-case skill name
-    description: str    # 1-2 sentences, when to use, what it does
+    name: str
+    description: str
 ```
 
-LLM prompt: "Given these related goals and their conversation summaries, generate a concise skill name and description."
+## LLM Prompt
 
-### Phase D: `synthesize_full_skill(cluster_id, goals, summaries, existing_skill_content, model) → str`
+```
+You are a skill synthesizer. You will receive:
+1. A cluster of related user goals
+2. Summaries of conversation threads that achieved these goals
+3. (optional) An existing skill to update
 
-Input: cluster data + optionally existing skill content (if updating)
-Output: complete SKILL.md content with:
-- YAML frontmatter (name, description)
-- `## Workflow` section (step-by-step instructions derived from conversations)
-- `## Rules` section (bullet list with IDs, no counters)
+Your job:
+- Extract the common workflow pattern across all threads
+- Identify what the user consistently does, in what order
+- Identify decision points, checkpoints, and repeatable patterns
+- If updating an existing skill, refine the workflow section with new insights
+- Preserve the ## Rules section if it exists (curator owns that)
+- Do NOT add rule IDs or counters in the markdown
+
+Sections to generate:
+- ## Workflow: step-by-step instructions, decision points, checkpoints
+- ## Rules: only if creating a new skill (use rule IDs without counters)
+```
+
+## Output
+
+Full SKILL.md content:
 
 ```markdown
+---
+name: mcp-debugging
+description: Diagnose and fix MCP connection, session, and concurrency issues in Langflow. Use when debugging MCP server failures, session timeouts, or high-concurrency connection drops.
+---
+
+## Workflow
+
+### Phase 1: Verify the basics
+1. Check that both servers are running (Langflow + MCP toolserver)
+2. Confirm the correct port and URL for the MCP server
+3. Test a single request to isolate server-side vs client-side issues
+
+### Phase 2: Trace the failure path
+...
+
 ## Rules
-- [skillname-00001] Always verify repo context before editing files
-- [skillname-00002] When user says "checkout and wait", only switch branches and stop
+- [mcp-debugging-00001] For timeout errors, verify the real runtime port first, then check retry settings
+- [mcp-debugging-00002] Validate the full target load before declaring a fix complete
 ```
-
-LLM prompt: "You are synthesizing a Claude skill from real conversation data. The skill should encode workflows, patterns, and rules that the conversations reveal. Rules should be specific, actionable, and derived from what actually worked or failed in the conversations."
-
-## Rule ID Generation
-
-- Format: `{skillname}-{NNNNN}` (e.g., `gitlab-api-00001`, `gitlab-api-00002`)
-- Sequential within each skill, starting from max existing ID + 1
-- New rules start with `helpful=0 harmful=0` in SQLite (counters not in markdown)
-
-## "Update" Mode
-
-When updating an existing skill:
-- Preserve existing `## Rules` section, append new rules with fresh IDs
-- May refine/improve `## Workflow` section
-- Frontmatter may be updated if skill scope has broadened
 
 ## Context Window Management
 
-For large clusters (>5 conversations), sample the most representative threads:
-- Prefer threads where goals were achieved (positive examples)
-- Prefer threads with rich friction points (negative examples + corrections)
-- Max: `max_threads_per_cluster` (default: 5)
+Max 10 thread summaries per cluster. If cluster has more, sample:
+- Threads where goals were achieved (success patterns)
+- Threads with rich tool usage and decision points
+- Avoid threads with only trivial/failed interactions
 
----
+## Relationship to Curator
 
-## Open Questions
+- **Synthesizer**: operates on raw threads, extracts the workflow. Creates or updates the `## Workflow` section.
+- **Curator**: operates on reflector insights (post-processing), adds rules to the `## Rules` section.
+- No shared state — they write to different sections of the same SKILL.md.
 
-*None yet — will flag if they arise during implementation.*
+## Skill Routing
+
+Before synthesizer runs, semantic search against `~/.claude/skills/` determines:
+- No close match → `synthesize_skill(existing_skill=None)` → new skill
+- Close match → `synthesize_skill(existing_skill=match)` → update workflow
+- Synthesizer always runs, always outputs full content. Never skips.
+
+## Testing
+
+Same pattern as `goal_extractor`/`goal_checker`: pre-seed Redis cache with LLM responses. Assert on output content. DRY_RUN=1 prevents disk writes. With small fixture clusters and pre-seeded summaries.

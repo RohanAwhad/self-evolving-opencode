@@ -4,10 +4,13 @@
 
 Runs per skill within a goal cluster, AFTER all threads in that cluster have been reflected. Synthesizes new rules from reflector insights. Always ADD-only — never modifies or deletes existing rules.
 
-## When It Runs
+Curator is part of the **evolve queue** (separate from synthesizer queue). It only touches the `## Rules` section. If no `## Rules` section exists on the skill, curator creates one.
 
-- **First-time run**: Curator in "full builder" mode — produces complete skill from scratch (frontmatter + workflow + rules). One curator call per cluster.
-- **Periodic run**: Curator in "ADD mode" — after all threads in a cluster are reflected, aggregate insights by skill, then one curator call per skill that has insights.
+## Relationship to Synthesizer
+
+- **Synthesizer**: operates on raw threads, extracts/updates the `## Workflow`. Runs first in the sequential pipeline.
+- **Curator**: operates on reflector insights (post-processing), adds rules to `## Rules`. Runs after synthesizer.
+- They write to different sections of the same SKILL.md. No conflict if run sequentially.
 
 ## Flow
 

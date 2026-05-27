@@ -17,19 +17,15 @@ Runs per conversation thread. Tags which skill rules were relevant, followed, he
 @dataclass
 class Reflection:
     session_id: str
-    rule_tags: list[RuleTag]         # per-rule tag
-    new_insights: list[str]          # patterns not covered by existing rules
+    rule_tags: list[RuleTag]              # per-rule tag (flat, all skills)
+    insights_by_skill: dict[str, list[str]]  # new insights, grouped by skill
 ```
 
-Each skill invoked in the session provides its `## Rules` section. The reflector evaluates the conversation against all these rules at once.
+Each skill invoked in the session provides its `## Rules` section. The reflector evaluates the conversation against all these rules at once. New insights are organized by which skill they belong to.
 
 ### `reflect_insight_only(session_id, thread_summary, model) → Reflection`
 
-First-time mode. No rules to tag. Only extracts:
-- Friction points: what caused delays, back-and-forth, user corrections
-- What worked: patterns that were effective
-- What didn't: approaches that led to bad outcomes
-- User corrections: explicit steering by the user
+First-time mode. No rules to tag (rule_tags = []). Outputs insights_by_skill using skill names from the `tool:skill` parts in the session.
 
 ## LLM Prompt (tag mode)
 
@@ -56,12 +52,18 @@ Also identify new insights — patterns or lessons from this conversation that a
     {"rule_id": "gitlab-api-00003", "tag": "not_followed"},
     {"rule_id": "branch-context-00005", "tag": "irrelevant"}
   ],
-  "new_insights": [
-    "When the branch has no commits, skip git log on branch, only check main",
-    "Agent overstepped by running reset when told to checkout and wait"
-  ]
+  "insights_by_skill": {
+    "mcp-debugging": [
+      "Session creation races under high concurrency, add per-server lock"
+    ],
+    "gitlab-api": [
+      "Always verify repo context before running git commands"
+    ]
+  }
 }
 ```
+
+Rule tags are flat (all skills merged) because the rule_id itself encodes the skill. Insights are grouped by skill so curator gets pre-organized input.
 
 ## Skill Detection
 

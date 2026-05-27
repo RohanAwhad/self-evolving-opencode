@@ -2,55 +2,71 @@
 
 ## Purpose
 
-Runs per goal cluster after N threads have accumulated. Synthesizes new rules from reflector insights, assigns them to appropriate skills. Can also propose new skills if a cluster has no matching skill.
+Runs per skill within a goal cluster, AFTER all threads in that cluster have been reflected. Synthesizes new rules from reflector insights. Always ADD-only — never modifies or deletes existing rules.
 
 ## When It Runs
 
-- **First-time run**: Curator in "full builder" mode — produces complete skill from scratch (frontmatter + workflow + rules).
-- **Periodic run**: Curator in "ADD mode" — only adds new rules to existing skills. Threads are re-clustered by goals, curator runs per cluster.
+- **First-time run**: Curator in "full builder" mode — produces complete skill from scratch (frontmatter + workflow + rules). One curator call per cluster.
+- **Periodic run**: Curator in "ADD mode" — after all threads in a cluster are reflected, aggregate insights by skill, then one curator call per skill that has insights.
+
+## Flow
+
+```
+Cluster threads (N threads)
+  → Reflector per thread → insights_by_skill
+  → Aggregate across threads:
+      {
+        "mcp-debugging": [insight1, insight2, insight3],
+        "gitlab-api": [insight1]
+      }
+  → For each skill with insights:
+      Curator(skill_name, insights, current_skill_content, rule_stats)
+        → [ADD_RULE, ADD_RULE, ...]
+```
+
+If a cluster has N clusters with M skills each: N×M curator calls.
 
 ## API
 
-### `curate_cluster(cluster_id, threads: list[Reflection], skills: list[SkillInfo], model) → list[CuratorOperation]`
+### `curate_skill(skill_name, insights: list[str], current_skill: SkillInfo, rule_stats: RuleStats, model) → list[CuratorOperation]`
 
 ```python
 @dataclass
 class CuratorOperation:
-    type: Literal["ADD_RULE", "PROPOSE_SKILL"]
+    type: Literal["ADD_RULE"]
     target_skill: str
-    rule_id: str | None
     content: str
     reasoning: str
 
 @dataclass
 class CuratorInput:
-    cluster_id: int
-    goal_texts: list[str]              # goals in this cluster
-    reflections: list[Reflection]       # all reflector outputs for threads in cluster
-    skills: list[SkillInfo]             # all skills referenced by these threads
-    rule_stats: dict[str, RuleStats]    # per-skill rule statistics from SQLite
+    skill_name: str
+    insights: list[str]               # all new insights for this skill from this cluster
+    current_skill: SkillInfo          # the skill's current content (for context, dedup)
+    rule_stats: RuleStats             # stats from SQLite (helpful/harmful counts)
 ```
+
+Curator does NOT see raw threads. It only sees insights that the reflector already extracted and organized by skill.
 
 ### First-time variant: `curate_new_skill(cluster_id, goals, summaries, model) → str`
 
-Full builder mode. Produces complete SKILL.md content (frontmatter + workflow + rules). Used during initial run.
+Full builder mode. Produces complete SKILL.md content (frontmatter + workflow + rules). Used during initial run when a cluster maps to "new" skill.
 
-## LLM Prompt (periodic mode)
+## LLM Prompt (periodic ADD mode)
 
 ```
 You are a skill curator. You will receive:
-1. A cluster of related user goals
-2. Reflections from multiple conversation threads (rule tags + new insights)
+1. A skill (its current rules and workflow)
+2. A list of new insights from recent conversation threads
 3. Statistics on existing rules (helpful/harmful counts)
-4. The current content of all skills referenced by these threads
 
 Your job:
-- Synthesize new insights into concrete rules
-- Decide which skill each rule belongs to
+- Synthesize new insights into concrete, actionable rules
 - Do NOT modify or delete existing rules (append-only)
-- If a cluster has no matching skill, propose a new skill
+- If an insight is already covered by an existing rule, skip it
+- If multiple insights say the same thing, combine them into one rule
 
-Output: JSON array of ADD operations or SKILL_PROPOSAL operations.
+Output: JSON array of ADD_RULE operations.
 ```
 
 ## Output Format
@@ -59,22 +75,22 @@ Output: JSON array of ADD operations or SKILL_PROPOSAL operations.
 [
   {
     "type": "ADD_RULE",
-    "target_skill": "gitlab-api",
     "content": "Before running git commands, always show current branch and repo state first",
     "reasoning": "Multiple sessions showed trust erosion when agent acted without verifying context"
   },
   {
     "type": "ADD_RULE",
-    "target_skill": "branch-context-gathering",
-    "content": "If branch has zero commits ahead of main, skip git log on branch, only check main history",
-    "reasoning": "Recurring across 3 sessions, agent wasted time running git log on empty branch"
+    "content": "If branch has zero commits ahead of main, skip git log, only check main history",
+    "reasoning": "Recurring across 3 sessions, agent wasted time checking empty branch"
   }
 ]
 ```
 
+Note: `target_skill` is implicit (curator is called per-skill).
+
 ## Rule Deduplication
 
-Before adding new rules, curator should check if a similar rule already exists:
+Before adding new rules:
 - Embed new rule content
 - Cosine similarity against all existing rules in the target skill
 - If similarity > 0.90: skip (duplicate)
@@ -86,13 +102,11 @@ Rules with `harmful > helpful * 3` are flagged as `suspicious` in SQLite. The cu
 
 ## Staleness
 
-Rules tagged `irrelevant` in the majority of recent sessions may be stale. Curator can flag them (mark as `stale` in SQLite) but does NOT remove them.
+Rules tagged `irrelevant` in majority of recent sessions may be stale. Curator can flag them (mark as `stale` in SQLite) but does NOT remove them.
 
 ## Design Decisions
 
-- **Curator frequency**: Per cluster, after N=5 new threads accumulate in that cluster. A cluster size of 5 gives enough signal for synthesis without being too noisy.
-- **Context window**: A cluster maps to 1-2 skills (not 3-4). Threads in a cluster share the same domain, so skills are naturally few. Send only rules + reflections from the skills actually tagged in recent threads.
-- **Re-clustering**: No separate step needed. Threads already have goals (from `goal_extractor`), goals already map to clusters (from `goal_clusterer`). Curator inherits this grouping directly.
-- **Suspicious rule flagging**: Rules with `harmful > helpful * 3` flagged as `suspicious` in SQLite. Curator can see stats but does NOT auto-delete or modify them. Human review only.
-- **Staleness**: Rules tagged `irrelevant` in majority of recent sessions flagged as `stale`. No auto-removal.
-- **Append-only**: Curator adds new rules only. Does not modify or delete existing rules. This prevents context collapse.
+- **One curator call per skill** — not per cluster. Insights arrive already grouped by skill from the reflector.
+- **No N=5 trigger** — curator runs immediately after all threads in the cluster are reflected. The cluster IS the batch boundary.
+- **Always ADD-only** — new rules appended, existing rules never modified. Prevents context collapse.
+- **Curator never sees raw threads** — only reflector-extracted insights. Clean separation of concerns.

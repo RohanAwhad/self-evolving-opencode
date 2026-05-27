@@ -48,3 +48,6 @@ Implemented all Phase 2 modules (specs 008-013). 176 tests total.
 - **Switch `summarize_conversation` to `complete_tool`** — currently uses `complete()` + string delimiter tags (`<|...|>`) prone to extraction failures. `goal_extractor.py` already uses `complete_tool()` with a strict JSON schema. Define a tool with fields for Goal/Intent/What Happened/etc., switch to forced tool-use.
 - **DRY_RUN: print full SKILL.md content** — currently only prints "would write X (N chars)". Print the actual markdown so operator can inspect before enabling writes.
 - **Evolve full skill directory** — pipeline currently only handles `SKILL.md`. Design and implement synthesis + evolution for `scripts/`, `references/`, and `assets/` subdirectories within each skill.
+- **Skill invocation counter queue** — third queue parallel to synthesize and evolve. Count tool:skill invocations per skill, store in skills.db. Later: cleanup process to prune unused skills.
+- **Skill cleanup** — remove unused/stale skills based on invocation counts + rule stats.
+- **Rule cleanup and merging** — deduplicate overlapping rules within a skill, merge redundant ones, remove consistently harmful rules.

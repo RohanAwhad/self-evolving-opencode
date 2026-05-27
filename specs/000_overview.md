@@ -158,3 +158,6 @@ DRY_RUN=1 → no writes to disk or DB
 - [ ] **Add `--force` flag** to re-process already-processed sessions.
 - [x] **DRY_RUN: print full SKILL.md content** — prints full markdown to stdout.
 - [ ] **Evolve full skill directory** — currently only synthesizes/evolves `SKILL.md`. Design and implement pipeline support for `scripts/`, `references/`, and `assets/` subdirectories. Synthesizer should generate supporting files from patterns observed in threads; curator should evolve them from insights.
+- [ ] **Skill invocation counter queue** — third queue parallel to synthesize and evolve. Scans tool:skill parts, increments per-skill invocation count in skills.db (new column or table). Enables a downstream cleanup process to identify and prune unused/low-usage skills.
+- [ ] **Skill cleanup** — process that uses invocation counts + rule stats to identify and remove unused/stale skills (low invocations, no recent activity).
+- [ ] **Rule cleanup and merging** — process that identifies duplicate/overlapping rules within a skill (cosine similarity + LLM judgment), merges redundant rules, and removes rules with consistently high harmful counts.

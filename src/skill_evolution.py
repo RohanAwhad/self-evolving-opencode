@@ -84,7 +84,9 @@ async def _run_synthesizer(
     skills_dir: Path,
     skills_db_path: Path,
     opencode_db_path: Path,
-    max_concurrency: int = 8,
+    max_concurrency: int = 5,
+    min_cluster_size: int = 3,
+    max_cluster_size: int = 20,
 ) -> None:
     session_ids = await get_unprocessed_sessions(
         "synthesize", limit=limit,
@@ -126,7 +128,7 @@ async def _run_synthesizer(
         return
 
     # Cluster goals
-    result: ClusterResult = cluster_goals(all_goal_texts, min_cluster_size=3, max_cluster_size=20)
+    result: ClusterResult = cluster_goals(all_goal_texts, min_cluster_size=min_cluster_size, max_cluster_size=max_cluster_size)
 
     # Scan existing skills once
     existing_skills = await scan_skills(skills_dir)
@@ -335,12 +337,14 @@ async def run_evolve(
     skills_dir: Path = SKILLS_DIR_DEFAULT,
     skills_db_path: Path = SKILLS_DB_PATH,
     opencode_db_path: Path = OPENCODE_DB_PATH,
-    max_concurrency: int = 8,
+    max_concurrency: int = 5,
+    min_cluster_size: int = 3,
+    max_cluster_size: int = 20,
 ) -> None:
     _ensure_skills_dir(skills_dir)
     logger.info("=== Skill Evolution (DRY_RUN=%s) ===", DRY_RUN)
 
-    await _run_synthesizer(limit, skills_dir, skills_db_path, opencode_db_path, max_concurrency)
+    await _run_synthesizer(limit, skills_dir, skills_db_path, opencode_db_path, max_concurrency, min_cluster_size, max_cluster_size)
     await _run_evolve(limit, skills_dir, skills_db_path, opencode_db_path, max_concurrency)
 
     logger.info("=== Skill Evolution complete ===")

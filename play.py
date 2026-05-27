@@ -109,7 +109,7 @@ async def main() -> None:
     # Handle --evolve mode
     if args.evolve_limit is not None:
         from src.skill_evolution import run_evolve
-        await run_evolve(limit=args.evolve_limit, max_concurrency=args.concurrency)
+        await run_evolve(limit=args.evolve_limit, max_concurrency=args.concurrency, min_cluster_size=args.min_cluster_size, max_cluster_size=args.max_cluster_size)
         return
 
     # Handle --goals-file mode

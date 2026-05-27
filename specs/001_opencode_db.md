@@ -39,6 +39,18 @@ Parses `"msgs 1-8"` → `(0, 8)` (0-indexed). Falls back to `(0, 999999)` for in
 ### `slice_messages(messages: list[dict], message_range: str) → list[dict]`
 Slices a message list by range string. Handles out-of-bounds ranges.
 
+### `get_skills_for_session(session_id, db_path=None) → list[str]`
+
+Returns distinct skill names invoked during a session. Queries `tool:skill` parts in the part table.
+
+```sql
+SELECT DISTINCT json_extract(data, '$.state.input.name')
+FROM part
+WHERE json_extract(data, '$.type') = 'tool'
+  AND json_extract(data, '$.tool') = 'skill'
+  AND message_id IN (SELECT id FROM message WHERE session_id = ?)
+```
+
 ## Data Type
 
 ```python
@@ -70,3 +82,4 @@ class Session:
 - `get_conversation_transcript`: format `--- Message N (role) ---`, multi-part concatenation, empty session
 - `parse_message_range`: `"msgs 1-8"` → `(0,8)`, `"msgs 3-3"`, single number, garbage input fallback
 - `slice_messages`: correct slice, empty list, out-of-bounds range
+- `get_skills_for_session`: session with skill invocations, session with none, deduplication

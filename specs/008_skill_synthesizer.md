@@ -40,7 +40,7 @@ Your job:
 - Identify decision points, checkpoints, and repeatable patterns
 - If updating an existing skill, refine the workflow section with new insights
 - Preserve the ## Rules section if it exists (curator owns that)
-- Do NOT add rule IDs or counters in the markdown
+- Rule IDs go in markdown. Counters do NOT.
 
 Sections to generate:
 - ## Workflow: step-by-step instructions, decision points, checkpoints

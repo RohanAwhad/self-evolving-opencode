@@ -2,7 +2,37 @@
 
 ## Purpose
 
-Manages the skills directory (`~/.claude/skills/`), provides semantic search over skills, and tracks which conversations contributed to which skills.
+Manages the skills directory (`~/.claude/skills/`), provides semantic search over skills, and tracks which sessions have been processed by each queue.
+
+## Skills Directory
+
+Skills live at `~/.claude/skills/<name>/SKILL.md`. Directory structure:
+
+```
+~/.claude/skills/<name>/
+├── SKILL.md          # Required: frontmatter + body
+├── scripts/          # Optional
+├── references/       # Optional
+└── assets/           # Optional
+```
+
+SKILL.md frontmatter:
+
+```yaml
+---
+name: skill-name           # kebab-case, matches directory name
+description: ...           # 1-1024 chars, imperative phrasing
+---
+```
+
+## Skills DB
+
+Location: `./skills.db` (project root). Separate from opencode DB. Contains:
+
+- `processed_synthesize` — tracks synthesizer queue
+- `processed_evolve` — tracks evolve queue
+- `rules` table — rule ID/counter tracking (spec 010)
+- `skill_clusters` — cluster-to-skill mapping
 
 ## API
 
@@ -14,23 +44,21 @@ Scans all `SKILL.md` files, parses YAML frontmatter.
 @dataclass
 class SkillInfo:
     name: str
-    description: str
-    path: Path
-    content: str            # full markdown content
-    has_rules: bool         # True if ## Rules section exists
+    description: str          # from frontmatter
+    path: Path                # full path to SKILL.md
+    content: str              # full markdown content
+    has_rules: bool           # True if ## Rules section exists
 ```
 
 ### `search_similar(query: str, skills: list[SkillInfo], top_k=3) → list[tuple[SkillInfo, float]]`
 
-Embeds query (skill description or goal cluster summary) using `all-mpnet-base-v2`, computes cosine similarity against all skill descriptions. Returns top-K with scores.
+Embeds query using `all-mpnet-base-v2`, computes cosine similarity against all skill `description` fields. Returns top-K with scores.
 
 ### `find_closest_skill(query: str, skills_dir="~/.claude/skills", top_k=3) → list[tuple[SkillInfo, float]]`
 
 Convenience: `scan_skills()` + `search_similar()`.
 
-## Decision: New or Update
-
-### `decide_new_or_update(new_frontmatter: SkillFrontmatter, top_skills: list[tuple[SkillInfo, float]], model) → SkillDecision`
+### `decide_new_or_update(new_name: str, new_description: str, top_skills: list[tuple[SkillInfo, float]], model) → SkillDecision`
 
 ```python
 @dataclass
@@ -42,27 +70,33 @@ class SkillDecision:
 
 LLM prompt: "Given this new skill draft and the 3 closest existing skills, decide whether this is a completely new skill or an update to one of the existing ones."
 
-The LLM can choose `update:X` if the overlap is strong, or `new` if it's a genuinely new domain.
+## Session Tracking (two queues)
 
-## Session Tracking
+### `get_unprocessed_sessions(queue: str, limit=50, db_path="./skills.db") → list[str]`
 
-### `mark_sessions_processed(session_ids: list[str], skill_name: str, db) → None`
+Returns session IDs not yet in the queue's processed table, from the opencode DB. `queue` is `"synthesize"` or `"evolve"`.
 
-Inserts into `processed_sessions` table.
+For synthesize: oldest first (fill gaps). For evolve: newest first (stay current).
 
-### `get_unprocessed_sessions(limit=50, db) → list[str]`
+### `mark_sessions_processed(queue: str, session_ids: list[str], skill_name: str, db_path="./skills.db") → None`
 
-Returns session IDs not yet in `processed_sessions`, ordered by recency.
+Inserts into the queue's processed table.
 
-## Skills DB (SQLite)
-
-Location: `~/.claude/skills/skills.db`
+## Processed Tables
 
 ```sql
-CREATE TABLE processed_sessions (
+CREATE TABLE processed_synthesize (
     session_id TEXT PRIMARY KEY,
-    skill_name TEXT NOT NULL,
-    processed_at TEXT NOT NULL
+    processed_at TEXT NOT NULL,
+    skill_name TEXT,
+    action TEXT  -- "created" or "updated"
+);
+
+CREATE TABLE processed_evolve (
+    session_id TEXT PRIMARY KEY,
+    processed_at TEXT NOT NULL,
+    rules_tagged INTEGER DEFAULT 0,
+    rules_added INTEGER DEFAULT 0
 );
 
 CREATE TABLE skill_clusters (
@@ -76,5 +110,7 @@ CREATE TABLE skill_clusters (
 
 ## Design Decisions
 
-- **Embedding base**: Embed skill `description` only (from YAML frontmatter). Cheaper and more focused than full markdown.
-- **Session filtering for periodic**: Both approaches — check `processed_sessions` table AND compare `time_created` against last run timestamp.
+- **Embedding base**: Skill `description` only (from YAML frontmatter). Cheaper and more focused than full markdown.
+- **Session filtering**: Both timestamp AND processed tables. New sessions = `time_created > last_run` AND `NOT IN processed_<queue>`.
+- **Two processed tables**: Synthesizer and evolve are independent queues. Same session can appear in both.
+- **DB path**: `db_path` kwarg (same pattern as `opencode_db.py`). Default: `./skills.db`.

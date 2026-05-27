@@ -51,11 +51,7 @@ class CuratorInput:
 
 Curator does NOT see raw threads. It only sees insights that the reflector already extracted and organized by skill.
 
-### First-time variant: `curate_new_skill(cluster_id, goals, summaries, model) → str`
-
-Full builder mode. Produces complete SKILL.md content (frontmatter + workflow + rules). Used during initial run when a cluster maps to "new" skill.
-
-## LLM Prompt (periodic ADD mode)
+## LLM Prompt (ADD mode)
 
 ```
 You are a skill curator. You will receive:

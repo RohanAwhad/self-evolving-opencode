@@ -33,7 +33,7 @@ await insert_rules("gitlab-api", [
 ], db)
 ```
 
-### `get_rules_for_skill(skill_name: str, db) → list[RuleRow]`
+### `get_rules_for_skill(skill_name: str, db_path="./skills.db") → list[RuleRow]`
 
 ```python
 @dataclass
@@ -45,7 +45,7 @@ class RuleRow:
     harmful_count: int
 ```
 
-### `update_counters(tags: list[RuleTag], db) → None`
+### `update_counters(tags: list[RuleTag], db_path="./skills.db") → None`
 
 Batch-update counters after reflector runs.
 
@@ -63,11 +63,11 @@ Counter logic:
 - `followed_harmful` → `harmful_count += 1`
 - `not_followed` → `harmful_count += 1`
 
-### `get_max_rule_id(skill_name: str, db) → int`
+### `get_max_rule_id(skill_name: str, db_path="./skills.db") → int`
 
 Returns highest numeric ID for a skill (e.g., `gitlab-api-00042` → 42). Used for generating next ID.
 
-### `get_rule_stats(skill_name: str, db) → RuleStats`
+### `get_rule_stats(skill_name: str, db_path="./skills.db") → RuleStats`
 
 ```python
 @dataclass
@@ -84,10 +84,10 @@ Used by curator to understand which rules are working.
 
 ## Skills DB Location
 
-Same DB as registry: `~/.local/share/opencode/skills.db`
+Same DB as registry: `./skills.db` (project root, shared with processed tables and skill_clusters from spec 009).
 
----
+## API
 
-## Open Questions
+All functions accept `db_path="./skills.db"` kwarg (consistent with existing `db_path` pattern from spec 001).
 
-*None*
+### `insert_rules(skill_name: str, rules: list[tuple[str, str]], db_path="./skills.db") → None`

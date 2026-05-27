@@ -108,3 +108,41 @@ uv run pytest -m redis           # only Redis-dependent tests
 | `test_goal_extractor.py` | 4 | Integration | DB + Redis fixtures (`@redis`) |
 
 **Markers**: `@pytest.mark.redis` (needs Redis), `@pytest.mark.live` (hits real LLM, skipped by default via `conftest.py` autoskip)
+
+## Roadmap
+
+### Built (001-007)
+
+- [x] `001_opencode_db.md` — SQLite access for sessions, messages, transcripts
+- [x] `002_llm.md` — LLM wrapper (complete, complete_tool, caching, retries)
+- [x] `003_goal_extraction.md` — Extract goals from conversation transcripts
+- [x] `004_goal_checking.md` — Check if goals were achieved
+- [x] `005_conversation_summarization.md` — Summarize tool-use messages
+- [x] `006_goal_clustering.md` — Cluster goals by semantic similarity
+- [x] `007_cli.md` — CLI entrypoint (list, extract, check, cluster)
+
+### In Design (008-013) — see `.dingllm/.brainstorm.md` for full discussion
+
+- [ ] `008_skill_synthesizer.md` — LLM generates skill from goal cluster data (two-phase: frontmatter → full skill)
+- [ ] `009_skill_registry.md` — Semantic search over skills, skill matching, session tracking
+- [ ] `010_skill_rules.md` — SQLite rule DB with helpful/harmful counters (counters NOT in markdown)
+- [ ] `011_reflector.md` — Per-thread rule tagging (irrelevant/followed_helpful/followed_harmful/not_followed)
+- [ ] `012_curator.md` — Per-cluster rule synthesis (ADD operations, suspicious rule flagging)
+- [ ] `013_skill_evolution_cli.md` — CLI modes for initial run and periodic runs
+
+### Pipeline: Initial Run
+
+```
+Sessions → extract goals → cluster → per cluster:
+  Reflector (no-tag) → Synthesizer (frontmatter) → Registry (search)
+  → Decide new/update → Synthesizer (full skill) → Write SKILL.md → Rules DB
+```
+
+### Pipeline: Periodic Run
+
+```
+New sessions → extract goals → match skills (from metadata) → per thread:
+  Reflector (tag mode) → update counters → mark processed
+  → Re-cluster threads by goals → per cluster:
+    Curator (ADD rules) → update SKILL.md → Rules DB
+```

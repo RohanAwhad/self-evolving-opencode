@@ -5,7 +5,6 @@ Synthesizes new rules, deduplicates against existing rules, and outputs
 ADD_RULE operations. Never modifies or deletes existing rules.
 """
 
-import json
 import textwrap
 from dataclasses import dataclass
 from typing import Literal
@@ -13,7 +12,7 @@ from typing import Literal
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.llm import DEFAULT_MODEL, complete
+from src.llm import DEFAULT_MODEL, complete_tool
 from src.skill_registry import SkillInfo
 from src.skill_rules import RuleStats
 
@@ -28,6 +27,28 @@ class CuratorOperation:
     reasoning: str
 
 
+CURATOR_TOOL = {
+    "name": "curate_rules",
+    "description": "Return a list of new rules to add to the skill.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "rules": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string", "description": "Concrete, actionable rule text"},
+                        "reasoning": {"type": "string", "description": "Why this rule helps"},
+                    },
+                    "required": ["content", "reasoning"],
+                },
+            }
+        },
+        "required": ["rules"],
+    },
+}
+
 CURATOR_SYSTEM = textwrap.dedent("""\
     You are a skill curator. You will receive:
     1. A skill (its current rules and workflow)
@@ -40,11 +61,6 @@ CURATOR_SYSTEM = textwrap.dedent("""\
     - If an insight is already covered by an existing rule, skip it
     - If multiple insights say the same thing, combine them into one rule
     - Each rule should be a clear, executable instruction
-
-    Output ONLY a JSON array of ADD_RULE operations:
-    [
-      {"type": "ADD_RULE", "content": "Rule text", "reasoning": "Why this rule helps"}
-    ]
     """)
 
 
@@ -74,22 +90,18 @@ async def curate_skill(
         f"Synthesize new rules from these insights."
     )
 
-    response = await complete(
+    data = await complete_tool(
         messages=[{"role": "user", "content": prompt}],
+        tool=CURATOR_TOOL,
         model=model,
         max_tokens=max_tokens,
         system=CURATOR_SYSTEM,
     )
 
-    cleaned = response.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    data = json.loads(cleaned)
-
     ops: list[CuratorOperation] = []
     existing_rules: list[str] = _extract_rule_contents(current_skill.content)
 
-    for item in data:
+    for item in data.get("rules", []):
         content = item.get("content", "")
         if not content.strip():
             continue

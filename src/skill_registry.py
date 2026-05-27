@@ -18,7 +18,7 @@ import yaml
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
-from src.llm import DEFAULT_MODEL, complete
+from src.llm import DEFAULT_MODEL, complete_tool
 from src.opencode_db import DB_PATH as OPENCODE_DB_PATH
 from src.skill_rules import SKILLS_DB_PATH
 
@@ -140,12 +140,21 @@ DECIDE_SYSTEM_PROMPT = textwrap.dedent("""\
 
     Decide whether this is a completely new skill or an update to one of the
     existing skills.
-
-    Output ONLY a JSON object with these keys:
-    - action: "new" or "update"
-    - target_skill: skill name if updating (null if new)
-    - reasoning: short explanation (1-2 sentences)
     """)
+
+DECIDE_TOOL = {
+    "name": "decide_skill_action",
+    "description": "Decide whether to create a new skill or update an existing one.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["new", "update"], "description": "Whether to create a new skill or update existing"},
+            "target_skill": {"type": "string", "description": "Skill name to update (null if new)", "nullable": True},
+            "reasoning": {"type": "string", "description": "Short explanation (1-2 sentences)"},
+        },
+        "required": ["action", "reasoning"],
+    },
+}
 
 
 async def decide_new_or_update(
@@ -161,20 +170,15 @@ async def decide_new_or_update(
     prompt = (
         f"Proposed skill:\n  name: {new_name}\n  description: {new_description}\n\n"
         f"Closest existing skills:\n{skills_text}\n\n"
-        f"Output the JSON decision."
+        f"Decide: create new or update existing?"
     )
-    response = await complete(
+    data = await complete_tool(
         messages=[{"role": "user", "content": prompt}],
+        tool=DECIDE_TOOL,
         model=model,
         max_tokens=512,
         system=DECIDE_SYSTEM_PROMPT,
     )
-    # Parse JSON from response (may be wrapped in fences)
-    cleaned = response.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    import json
-    data = json.loads(cleaned)
     return SkillDecision(
         action=data["action"],
         target_skill=data.get("target_skill"),

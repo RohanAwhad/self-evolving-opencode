@@ -8,32 +8,12 @@ from src.llm.cache import cache_key, cache_set
 from src.skill_rules import RuleRow
 
 
-_REFLECT_RESPONSE = {
-    "rule_tags": [
-        {"rule_id": "test-skill-00001", "tag": "followed_helpful"},
-        {"rule_id": "test-skill-00002", "tag": "not_followed"},
-        {"rule_id": "other-skill-00001", "tag": "irrelevant"},
-    ],
-    "insights_by_skill": {
-        "test-skill": ["Always check git status before modifying files"],
-        "other-skill": [],
-    },
-}
-
-_INSIGHT_RESPONSE = {
-    "insights_by_skill": {
-        "test-skill": ["Found that caching responses avoids repeated API calls"],
-        "other-skill": [],
-    },
-}
-
-
 @pytest.mark.redis
 class TestReflectOnThread:
     async def test_tags_and_insights(self, redis_client):
         r, seeded_keys = redis_client
         from src.llm import DEFAULT_MODEL
-        from src.reflector import REFLECT_TAG_SYSTEM, _format_rules_for_prompt, reflect_on_thread
+        from src.reflector import REFLECT_TAG_SYSTEM, REFLECT_TAG_TOOL, _format_rules_for_prompt, reflect_on_thread
 
         session_id = "s1"
         summary = "User asked to fix a bug. Agent used git status, made edits, tested."
@@ -54,8 +34,19 @@ class TestReflectOnThread:
             f"Rules:\n{rules_text}\n\n"
             f"Evaluate each rule and extract new insights."
         )
-        key = cache_key("complete", messages=[{"role": "user", "content": prompt}], model=DEFAULT_MODEL, max_tokens=4096, system=REFLECT_TAG_SYSTEM)
-        await cache_set(r, key, json.dumps(_REFLECT_RESPONSE))
+        response = {
+            "rule_tags": [
+                {"rule_id": "test-skill-00001", "tag": "followed_helpful"},
+                {"rule_id": "test-skill-00002", "tag": "not_followed"},
+                {"rule_id": "other-skill-00001", "tag": "irrelevant"},
+            ],
+            "insights_by_skill": {
+                "test-skill": ["Always check assertion output first"],
+                "other-skill": [],
+            },
+        }
+        key = cache_key("complete_tool", messages=[{"role": "user", "content": prompt}], tool=REFLECT_TAG_TOOL, model=DEFAULT_MODEL, max_tokens=4096, system=REFLECT_TAG_SYSTEM)
+        await cache_set(r, key, json.dumps(response, sort_keys=True))
         seeded_keys.append(key)
 
         result = await reflect_on_thread(session_id=session_id, thread_summary=summary, skills=skills)
@@ -65,10 +56,9 @@ class TestReflectOnThread:
         assert len(result.insights_by_skill["test-skill"]) == 1
 
     async def test_empty_skills(self, redis_client):
-        """No rules to tag — tags empty, insights possible."""
         r, seeded_keys = redis_client
         from src.llm import DEFAULT_MODEL
-        from src.reflector import REFLECT_TAG_SYSTEM, _format_rules_for_prompt, reflect_on_thread
+        from src.reflector import REFLECT_TAG_SYSTEM, REFLECT_TAG_TOOL, _format_rules_for_prompt, reflect_on_thread
 
         session_id = "s2"
         summary = "Simple coding session."
@@ -79,9 +69,9 @@ class TestReflectOnThread:
             f"Rules:\n{rules_text}\n\n"
             f"Evaluate each rule and extract new insights."
         )
-        key = cache_key("complete", messages=[{"role": "user", "content": prompt}], model=DEFAULT_MODEL, max_tokens=4096, system=REFLECT_TAG_SYSTEM)
-        response = json.dumps({"rule_tags": [], "insights_by_skill": {}})
-        await cache_set(r, key, response)
+        response = {"rule_tags": [], "insights_by_skill": {}}
+        key = cache_key("complete_tool", messages=[{"role": "user", "content": prompt}], tool=REFLECT_TAG_TOOL, model=DEFAULT_MODEL, max_tokens=4096, system=REFLECT_TAG_SYSTEM)
+        await cache_set(r, key, json.dumps(response, sort_keys=True))
         seeded_keys.append(key)
 
         result = await reflect_on_thread(session_id=session_id, thread_summary=summary, skills=[])
@@ -94,7 +84,7 @@ class TestReflectInsightOnly:
     async def test_insights_extracted(self, redis_client):
         r, seeded_keys = redis_client
         from src.llm import DEFAULT_MODEL
-        from src.reflector import REFLECT_INSIGHT_SYSTEM, reflect_insight_only
+        from src.reflector import REFLECT_INSIGHT_SYSTEM, REFLECT_INSIGHT_TOOL, reflect_insight_only
 
         session_id = "s1"
         summary = "User asked complex queries. Agent cached responses."
@@ -107,8 +97,14 @@ class TestReflectInsightOnly:
             f"Active skills:\n{skills_text}\n\n"
             f"Extract new insights grouped by skill."
         )
-        key = cache_key("complete", messages=[{"role": "user", "content": prompt}], model=DEFAULT_MODEL, max_tokens=4096, system=REFLECT_INSIGHT_SYSTEM)
-        await cache_set(r, key, json.dumps(_INSIGHT_RESPONSE))
+        response = {
+            "insights_by_skill": {
+                "test-skill": ["Found that caching responses avoids repeated API calls"],
+                "other-skill": [],
+            },
+        }
+        key = cache_key("complete_tool", messages=[{"role": "user", "content": prompt}], tool=REFLECT_INSIGHT_TOOL, model=DEFAULT_MODEL, max_tokens=4096, system=REFLECT_INSIGHT_SYSTEM)
+        await cache_set(r, key, json.dumps(response, sort_keys=True))
         seeded_keys.append(key)
 
         result = await reflect_insight_only(session_id=session_id, thread_summary=summary, skill_names=skill_names)

@@ -4,12 +4,11 @@ Evaluates a conversation thread against skill rules, tags each rule, and
 extracts new insights grouped by skill.
 """
 
-import json
 import textwrap
 from dataclasses import dataclass
 from typing import Literal
 
-from src.llm import DEFAULT_MODEL, complete
+from src.llm import DEFAULT_MODEL, complete_tool
 from src.skill_rules import RuleRow, RuleTag
 
 
@@ -33,14 +32,37 @@ REFLECT_TAG_SYSTEM = textwrap.dedent("""\
 
     Also identify new insights — patterns or lessons from this conversation
     that aren't covered by the existing rules. Group insights by skill.
-
-    Output ONLY a JSON object:
-    {
-      "rule_tags": [{"rule_id": "skill-00001", "tag": "followed_helpful"}, ...],
-      "insights_by_skill": {"skill-a": ["insight 1"], "skill-b": []}
-    }
     """)
 
+REFLECT_TAG_TOOL = {
+    "name": "reflect_on_rules",
+    "description": "Tag each rule and extract new insights grouped by skill.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "rule_tags": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "rule_id": {"type": "string", "description": "The rule ID (e.g. skill-00001)"},
+                        "tag": {"type": "string", "enum": ["irrelevant", "followed_helpful", "followed_harmful", "not_followed"]},
+                    },
+                    "required": ["rule_id", "tag"],
+                },
+            },
+            "insights_by_skill": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "description": "New insights grouped by skill name",
+            },
+        },
+        "required": ["rule_tags", "insights_by_skill"],
+    },
+}
 
 REFLECT_INSIGHT_SYSTEM = textwrap.dedent("""\
     You are a skill insight extractor. You will receive:
@@ -49,12 +71,26 @@ REFLECT_INSIGHT_SYSTEM = textwrap.dedent("""\
 
     Extract new insights — patterns, friction points, what worked, what didn't.
     Group insights by the skill they apply to.
-
-    Output ONLY a JSON object:
-    {
-      "insights_by_skill": {"skill-a": ["insight 1"], "skill-b": []}
-    }
     """)
+
+REFLECT_INSIGHT_TOOL = {
+    "name": "extract_insights",
+    "description": "Extract new insights grouped by skill name.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "insights_by_skill": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "description": "New insights grouped by skill name",
+            },
+        },
+        "required": ["insights_by_skill"],
+    },
+}
 
 
 def _format_rules_for_prompt(skills: list[tuple[str, list[RuleRow]]]) -> str:
@@ -84,17 +120,13 @@ async def reflect_on_thread(
         f"Evaluate each rule and extract new insights."
     )
 
-    response = await complete(
+    data = await complete_tool(
         messages=[{"role": "user", "content": prompt}],
+        tool=REFLECT_TAG_TOOL,
         model=model,
         max_tokens=max_tokens,
         system=REFLECT_TAG_SYSTEM,
     )
-
-    cleaned = response.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    data = json.loads(cleaned)
 
     tags = [
         RuleTag(rule_id=rt["rule_id"], tag=rt["tag"], session_id=session_id)
@@ -120,17 +152,13 @@ async def reflect_insight_only(
         f"Extract new insights grouped by skill."
     )
 
-    response = await complete(
+    data = await complete_tool(
         messages=[{"role": "user", "content": prompt}],
+        tool=REFLECT_INSIGHT_TOOL,
         model=model,
         max_tokens=max_tokens,
         system=REFLECT_INSIGHT_SYSTEM,
     )
-
-    cleaned = response.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    data = json.loads(cleaned)
 
     insights = data.get("insights_by_skill", {})
     return Reflection(session_id=session_id, rule_tags=[], insights_by_skill=insights)

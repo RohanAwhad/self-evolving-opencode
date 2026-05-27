@@ -232,3 +232,16 @@ def skills_db_path(tmp_path: Path) -> Path:
     conn.commit()
     conn.close()
     return db_file
+
+
+# ---------------------------------------------------------------------------
+# Temp skills directory fixture
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def temp_skills_dir(tmp_path: Path) -> Path:
+    """Empty skills directory for scan_skills tests."""
+    skills_dir = tmp_path / "skills"
+    skills_dir.mkdir()
+    return skills_dir

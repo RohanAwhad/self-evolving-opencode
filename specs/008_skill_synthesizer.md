@@ -87,10 +87,15 @@ Max 10 thread summaries per cluster. If cluster has more, sample:
 
 ## Skill Routing
 
-Before synthesizer runs, semantic search against `~/.claude/skills/` determines:
-- No close match → `synthesize_skill(existing_skill=None)` → new skill
-- Close match → `synthesize_skill(existing_skill=match)` → update workflow
-- Synthesizer always runs, always outputs full content. Never skips.
+Before synthesizer runs, two steps determine the destination:
+
+1. **Semantic search** (`find_closest_skill` from spec 009): embed the cluster's goal summary, find top-3 closest existing skills by description similarity.
+2. **LLM decision** (`decide_new_or_update` from spec 009): given the new skill draft (name + description) and the top-3 matches, decide `new` or `update:X`.
+3. Based on decision:
+   - `new` → `synthesize_skill(existing_skill=None)` → create new SKILL.md
+   - `update:X` → `synthesize_skill(existing_skill=SkillInfo)` → update existing workflow
+
+Synthesizer always runs, always outputs full content. Never skips.
 
 ## Testing
 

@@ -31,17 +31,17 @@ Each queue has its own `processed_` table. Same session can appear in both queue
   │     Extract goals → cluster
   │     Per cluster:
   │       Summarize ≤10 threads
-  │       Semantic search against ~/.claude/skills/
-  │       → no match: Synthesizer → create SKILL.md
-  │       → match: Synthesizer → update workflow
+  │       Semantic search → top 3 closest skills (spec 009)
+  │       LLM decide new or update:X (spec 009)
+  │       → new: Synthesize full SKILL.md
+  │       → update: Synthesize updated workflow
   │     Mark sessions in processed_synthesize
   │
   └─► Evolve queue
         Find newest M sessions NOT in processed_evolve
         Detect skills (tool:skill parts)
-        Group threads by goal cluster
         Reflector per thread → insights_by_skill + rule_tags
-        Aggregate per skill per cluster
+        Aggregate insights by skill across all threads
         Curator per skill → ADD rules → update SKILL.md
         Mark sessions in processed_evolve
 ```

@@ -137,14 +137,14 @@ uv run pytest -m redis           # only Redis-dependent tests
 
   [1] Synthesizer queue (processed_synthesize)
        Sessions oldest-first → extract goals → cluster
-       Per cluster: synthesize ≤10 threads → semantic search
-         → new: create SKILL.md (workflow + rules)
-         → match: update existing skill's workflow
+       Per cluster: synthesize ≤10 threads
+         → semantic search + LLM decide (new/update)
+         → Synthesizer → create/update SKILL.md
 
   [2] Evolve queue (processed_evolve)
        Sessions newest-first → detect skills (tool:skill parts)
-       Group by cluster → Reflector per thread → insights_by_skill
-       Per skill: Curator → ADD rules → update SKILL.md
+       Reflector per thread → insights_by_skill
+       Aggregate by skill → Curator → ADD rules → update SKILL.md
 
 DRY_RUN=1 → no writes to disk or DB
 Sequential execution to avoid race conditions on SKILL.md writes

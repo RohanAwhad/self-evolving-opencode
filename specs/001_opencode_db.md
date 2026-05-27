@@ -83,3 +83,5 @@ class Session:
 - `parse_message_range`: `"msgs 1-8"` → `(0,8)`, `"msgs 3-3"`, single number, garbage input fallback
 - `slice_messages`: correct slice, empty list, out-of-bounds range
 - `get_skills_for_session`: session with skill invocations, session with none, deduplication
+
+**Note**: The existing `db_path` fixture does not include `tool:skill` parts. A separate fixture (or extended seed data) with skill parts is needed for `get_skills_for_session` tests.

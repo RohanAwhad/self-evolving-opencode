@@ -84,12 +84,12 @@ Inserts into the queue's processed table.
 
 ## Processed Tables
 
+Simple tracking — just session ID + timestamp. No skill_name column (a session may touch multiple skills; skill→session relationships are in `skill_clusters`).
+
 ```sql
 CREATE TABLE processed_synthesize (
     session_id TEXT PRIMARY KEY,
-    processed_at TEXT NOT NULL,
-    skill_name TEXT,
-    action TEXT  -- "created" or "updated"
+    processed_at TEXT NOT NULL
 );
 
 CREATE TABLE processed_evolve (
@@ -106,6 +106,14 @@ CREATE TABLE skill_clusters (
     created_at TEXT NOT NULL,
     PRIMARY KEY (skill_name, cluster_id, goal_text)
 );
+```
+
+## Database Initialization
+
+`init_skills_db()` is a separate script (`scripts/init_skills_db.py`), run manually once. Creates all tables. Not toggled by `DRY_RUN` — it's an explicit setup step, not part of the evolution pipeline.
+
+```bash
+uv run python scripts/init_skills_db.py
 ```
 
 ## Design Decisions

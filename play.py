@@ -98,6 +98,8 @@ async def main() -> None:
                         help="Summarize each thread (goal segment) via LLM")
     parser.add_argument("--evolve", dest="evolve_limit", type=int, default=None, const=50, nargs="?",
                         help="Run skill evolution pipeline (optional: number of sessions per queue)")
+    parser.add_argument("--concurrency", type=int, default=8,
+                        help="Max concurrent LLM calls (default: 8)")
     parser.add_argument("--min-cluster-size", type=int, default=5,
                         help="Minimum cluster size; smaller clusters merge (default: 5)")
     parser.add_argument("--max-cluster-size", type=int, default=100,
@@ -107,7 +109,7 @@ async def main() -> None:
     # Handle --evolve mode
     if args.evolve_limit is not None:
         from src.skill_evolution import run_evolve
-        await run_evolve(limit=args.evolve_limit)
+        await run_evolve(limit=args.evolve_limit, max_concurrency=args.concurrency)
         return
 
     # Handle --goals-file mode

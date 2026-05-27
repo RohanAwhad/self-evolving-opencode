@@ -8,6 +8,7 @@ Sequential execution avoids race conditions on SKILL.md writes.
 DRY_RUN=1 prevents all disk/SQLite writes. Output goes to stdout.
 """
 
+import asyncio
 import os
 from collections import defaultdict
 from pathlib import Path
@@ -82,6 +83,7 @@ async def _run_synthesizer(
     skills_dir: Path,
     skills_db_path: Path,
     opencode_db_path: Path,
+    max_concurrency: int = 8,
 ) -> None:
     session_ids = await get_unprocessed_sessions(
         "synthesize", limit=limit,
@@ -93,12 +95,20 @@ async def _run_synthesizer(
 
     logger.info("Synthesizer: {} unprocessed sessions (oldest first)", len(session_ids))
 
-    # Extract goals from all sessions; track which sessions yielded goals
+    # Extract goals from all sessions in parallel (bounded by semaphore)
+    sem = asyncio.Semaphore(max_concurrency)
+
+    async def _extract_one(sid: str) -> tuple[str, list[Goal]]:
+        async with sem:
+            goals = await extract_goals(sid, db_path=opencode_db_path)
+        return sid, goals
+
+    results = await asyncio.gather(*(_extract_one(sid) for sid in session_ids))
+
     all_goal_texts: list[str] = []
     goal_sources: list[tuple[str, Goal]] = []
     sessions_with_goals: set[str] = set()
-    for sid in session_ids:
-        goals = await extract_goals(sid, db_path=opencode_db_path)
+    for sid, goals in results:
         for g in goals:
             text = f"{g.title}: {g.description}"
             all_goal_texts.append(text)
@@ -145,18 +155,31 @@ async def _run_synthesizer(
         # Summarize ≤10 threads from this cluster
         summaries: list[str] = []
         summarized_sids: list[str] = []
+
+        # Prepare data for all candidates
+        summarize_candidates: list[tuple[str, Goal]] = []
         for sid in cluster_sids:
-            if len(summaries) >= 10:
+            if len(summarize_candidates) >= 10:
                 break
-            # Find first goal for this session
             sid_goal = next((g for ss, g in goal_sources if ss == sid), None)
             if not sid_goal:
                 continue
-            rich = await get_rich_messages_for_session(sid, db_path=opencode_db_path)
-            thread = slice_messages(rich, sid_goal.message_range)
-            if not thread:
-                continue
-            summary = await summarize_conversation(thread)
+            summarize_candidates.append((sid, sid_goal))
+
+        if not summarize_candidates:
+            continue
+
+        async def _summarize_one(sid: str, sid_goal: Goal) -> tuple[str, str | None]:
+            async with sem:
+                rich = await get_rich_messages_for_session(sid, db_path=opencode_db_path)
+                thread = slice_messages(rich, sid_goal.message_range)
+                if thread:
+                    summary = await summarize_conversation(thread)
+                    return sid, summary
+            return sid, None
+
+        summary_results = await asyncio.gather(*(_summarize_one(sid, g) for sid, g in summarize_candidates))
+        for sid, summary in summary_results:
             if summary:
                 summaries.append(summary)
                 summarized_sids.append(sid)
@@ -211,6 +234,7 @@ async def _run_evolve(
     skills_dir: Path,
     skills_db_path: Path,
     opencode_db_path: Path,
+    max_concurrency: int = 8,
 ) -> None:
     session_ids = await get_unprocessed_sessions(
         "evolve", limit=limit,
@@ -305,11 +329,12 @@ async def run_evolve(
     skills_dir: Path = SKILLS_DIR_DEFAULT,
     skills_db_path: Path = SKILLS_DB_PATH,
     opencode_db_path: Path = OPENCODE_DB_PATH,
+    max_concurrency: int = 8,
 ) -> None:
     _ensure_skills_dir(skills_dir)
     logger.info("=== Skill Evolution (DRY_RUN=%s) ===", DRY_RUN)
 
-    await _run_synthesizer(limit, skills_dir, skills_db_path, opencode_db_path)
-    await _run_evolve(limit, skills_dir, skills_db_path, opencode_db_path)
+    await _run_synthesizer(limit, skills_dir, skills_db_path, opencode_db_path, max_concurrency)
+    await _run_evolve(limit, skills_dir, skills_db_path, opencode_db_path, max_concurrency)
 
     logger.info("=== Skill Evolution complete ===")

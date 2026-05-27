@@ -128,7 +128,8 @@ uv run pytest -m redis           # only Redis-dependent tests
 - [ ] `010_skill_rules.md` — SQLite rule DB with helpful/harmful counters (counters NOT in markdown)
 - [ ] `011_reflector.md` — Per-thread rule tagging (irrelevant/followed_helpful/followed_harmful/not_followed)
 - [ ] `012_curator.md` — Per-cluster rule synthesis (ADD operations, suspicious rule flagging)
-- [ ] `013_skill_evolution_cli.md` — CLI modes for initial run and periodic runs
+- [ ] `013_skill_evolution_cli.md` — CLI `--evolve` mode with two sequential queues, DRY_RUN support
+- [ ] **4 smoke tests** for skill evolution (`DRY_RUN=1`): synthesize-bootstrap, synthesize-existing, evolve-bootstrap, evolve-existing — see `.test_plans.md` Phase 2
 
 ### Pipeline: `--evolve` (single mode, two sequential queues)
 

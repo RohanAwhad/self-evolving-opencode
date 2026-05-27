@@ -121,24 +121,24 @@ uv run pytest -m redis           # only Redis-dependent tests
 - [x] `006_goal_clustering.md` — Cluster goals by semantic similarity
 - [x] `007_cli.md` — CLI entrypoint (list, extract, check, cluster)
 
-### In Design (008-013) — see `.dingllm/.brainstorm.md` for full discussion
+### Built (008-013)
 
-- [ ] `008_skill_synthesizer.md` — LLM generates skill from goal cluster data (two-phase: frontmatter → full skill)
-- [ ] `009_skill_registry.md` — Semantic search over skills, skill matching, session tracking
-- [ ] `010_skill_rules.md` — SQLite rule DB with helpful/harmful counters (counters NOT in markdown)
-- [ ] `011_reflector.md` — Per-thread rule tagging (irrelevant/followed_helpful/followed_harmful/not_followed)
-- [ ] `012_curator.md` — Per-cluster rule synthesis (ADD operations, suspicious rule flagging)
-- [ ] `013_skill_evolution_cli.md` — CLI `--evolve` mode with two sequential queues, DRY_RUN support
-- [ ] **4 smoke tests** for skill evolution (`DRY_RUN=1`): synthesize-bootstrap, synthesize-existing, evolve-bootstrap, evolve-existing — see `.test_plans.md` Phase 2
+- [x] `008_skill_synthesizer.md` — LLM generates skill from goal cluster data
+- [x] `009_skill_registry.md` — Semantic search over skills, skill matching, session tracking
+- [x] `010_skill_rules.md` — SQLite rule DB with helpful/harmful counters
+- [x] `011_reflector.md` — Per-thread rule tagging (irrelevant/followed_helpful/followed_harmful/not_followed)
+- [x] `012_curator.md` — Per-skill rule synthesis (ADD-only), dedup via cosine similarity
+- [x] `013_skill_evolution_cli.md` — CLI `--evolve` mode with two sequential queues, DRY_RUN support
+- [x] **4 smoke tests** — `tests/test_skill_evolution.py`, all `@pytest.mark.live` with pre-seeded Redis cache
 
-### Pipeline: `--evolve` (single mode, two sequential queues)
+### Pipeline: `--evolve`
 
 ```
---evolve [-n N]
+--evolve [-n N] [--concurrency M]
 
   [1] Synthesizer queue (processed_synthesize)
-       Sessions oldest-first → extract goals → cluster
-       Per cluster: synthesize ≤10 threads
+       Sessions oldest-first → extract goals (parallel, bounded by semaphore)
+       → cluster → Per cluster: summarize ≤10 threads (parallel)
          → semantic search + LLM decide (new/update)
          → Synthesizer → create/update SKILL.md
 
@@ -148,5 +148,11 @@ uv run pytest -m redis           # only Redis-dependent tests
        Aggregate by skill → Curator → ADD rules → update SKILL.md
 
 DRY_RUN=1 → no writes to disk or DB
-Sequential execution to avoid race conditions on SKILL.md writes
 ```
+
+## Backlog
+
+- [ ] **Cache SentenceTransformer singletons** — `goal_clusterer._embed()`, `skill_registry._embed()`, `curator._is_duplicate()` each create a fresh model per call. Add module-level singleton or shared `src/embeddings.py`.
+- [ ] **Scaling `get_unprocessed_sessions`** — uses `NOT IN (...)` which won't scale to thousands of processed sessions. Switch to LEFT JOIN or temp table.
+- [ ] **Profile and consider `asyncio.gather` for evolve queue** — currently sequential per session (reflect depends on prior state). May parallelize summarize calls within the queue.
+- [ ] **Add `--force` flag** to re-process already-processed sessions.

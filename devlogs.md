@@ -41,3 +41,7 @@ Implemented all Phase 2 modules (specs 008-013). 176 tests total.
 - Profile pipeline performance, consider asyncio.gather for parallel queue execution
 - Consider adding `--force` flag to re-process sessions
 - `_get_unprocessed_sessions_sync` uses `NOT IN (...)` which won't scale to thousands of processed sessions — switch to LEFT JOIN or temp table
+
+## Backlog
+
+- **Cache SentenceTransformer singletons** — `goal_clusterer._embed()`, `skill_registry._embed()`, and `curator._is_duplicate()` each create a fresh `SentenceTransformer("all-mpnet-base-v2")` per call. Reloads weights every time (~199 params, fast but wasteful). Add module-level singleton in each, or a shared `src/embeddings.py`.

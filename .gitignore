@@ -5,3 +5,4 @@ __pycache__/
 logs/
 /.coverage
 /docs/RESEARCH_equity_apartments_roommate_finder.md
+/skills.db

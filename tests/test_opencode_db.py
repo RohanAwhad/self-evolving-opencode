@@ -4,6 +4,7 @@ from src.opencode_db import (
     get_conversation_transcript,
     get_messages_for_session,
     get_sessions,
+    get_skills_for_session,
     parse_message_range,
     slice_messages,
 )
@@ -111,7 +112,7 @@ class TestGetMessagesForSession:
     async def test_ordering_by_time_created(self, db_path):
         msgs = await get_messages_for_session("s1", db_path=db_path)
         roles = [m["role"] for m in msgs]
-        assert roles == ["user", "assistant", "user", "assistant"]
+        assert roles == ["user", "assistant", "user", "assistant", "assistant"]
 
     async def test_text_extracted(self, db_path):
         msgs = await get_messages_for_session("s1", db_path=db_path)
@@ -173,3 +174,28 @@ class TestGetConversationTranscript:
         # m10 is enumerated as 1, m11 as 2 but skipped (no parts)
         assert "--- Message 1 (assistant) ---" in t
         assert "Message 2" not in t
+
+
+# -- get_skills_for_session (async, needs DB) ----------------------------------
+
+
+class TestGetSkillsForSession:
+    async def test_returns_skill_names(self, db_path):
+        skills = await get_skills_for_session("s1", db_path=db_path)
+        assert set(skills) == {"gitlab-api", "code-review"}
+
+    async def test_single_skill_session(self, db_path):
+        skills = await get_skills_for_session("s2", db_path=db_path)
+        assert skills == ["code-review"]
+
+    async def test_no_skills_returns_empty(self, db_path):
+        skills = await get_skills_for_session("s3", db_path=db_path)
+        assert skills == []
+
+    async def test_nonexistent_session_returns_empty(self, db_path):
+        skills = await get_skills_for_session("nonexistent", db_path=db_path)
+        assert skills == []
+
+    async def test_empty_session_returns_empty(self, db_path):
+        skills = await get_skills_for_session("s4", db_path=db_path)
+        assert skills == []

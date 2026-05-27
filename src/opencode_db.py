@@ -252,3 +252,25 @@ def slice_messages(all_messages: list[dict], range_str: str) -> list[dict]:
     """Slice messages by a range string like 'msgs 1-8'."""
     start, end = parse_message_range(range_str)
     return all_messages[start:end]
+
+
+def _get_skills_for_session_sync(session_id: str, db_path: Path) -> list[str]:
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        """
+        SELECT DISTINCT json_extract(data, '$.state.input.name') AS skill_name
+        FROM part
+        WHERE json_extract(data, '$.type') = 'tool'
+          AND json_extract(data, '$.tool') = 'skill'
+          AND message_id IN (SELECT id FROM message WHERE session_id = ?)
+          AND skill_name IS NOT NULL
+        """,
+        (session_id,),
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows if r[0]]
+
+
+async def get_skills_for_session(session_id: str, db_path: Path = DB_PATH) -> list[str]:
+    """Return skill names invoked during a session, extracted from tool:skill parts."""
+    return await asyncio.to_thread(_get_skills_for_session_sync, session_id, db_path)

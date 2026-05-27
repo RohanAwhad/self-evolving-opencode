@@ -87,6 +87,9 @@ _MESSAGES = [
     # s5: 2 messages (m11 has no parts -> gets skipped)
     ("m10", "s5", "2024-01-05T00:01:00Z", '{"role":"assistant"}'),
     ("m11", "s5", "2024-01-05T00:02:00Z", '{"role":"user"}'),
+    # Skill invocations: s1 gets two skills, s2 gets one
+    ("m12", "s1", "2024-01-01T00:05:00Z", '{"role":"assistant"}'),
+    ("m13", "s2", "2024-01-02T00:04:00Z", '{"role":"assistant"}'),
 ]
 
 
@@ -115,6 +118,20 @@ _PARTS = [
     # m10: single text part
     _part("p12", "m10", "2024-01-05T00:01:01Z", {"type": "text", "text": "I'll help"}),
     # m11: NO parts (tests message-with-no-parts-skipped)
+    # m12: skill invocations in s1 — two skills invoked
+    _part("p13", "m12", "2024-01-01T00:05:01Z", {
+        "type": "tool", "tool": "skill", "callID": "call-1",
+        "state": {"status": "completed", "input": {"name": "gitlab-api"}, "output": "# gitlab-api skill", "title": "Loaded skill: gitlab-api"},
+    }),
+    _part("p14", "m12", "2024-01-01T00:05:02Z", {
+        "type": "tool", "tool": "skill", "callID": "call-2",
+        "state": {"status": "completed", "input": {"name": "code-review"}, "output": "# code-review skill", "title": "Loaded skill: code-review"},
+    }),
+    # m13: skill invocation in s2 — one skill invoked
+    _part("p15", "m13", "2024-01-02T00:04:01Z", {
+        "type": "tool", "tool": "skill", "callID": "call-3",
+        "state": {"status": "completed", "input": {"name": "code-review"}, "output": "# code-review skill", "title": "Loaded skill: code-review"},
+    }),
 ]
 
 

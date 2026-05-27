@@ -193,6 +193,11 @@ async def _run_synthesizer(
         skill_name = _derive_skill_name(cluster_goals_objs)
 
         top_matches = await find_closest_skill(cluster_desc, skills_dir=skills_dir, top_k=3)
+        if top_matches:
+            for skill_info, score in top_matches:
+                logger.debug("  top match: {} (score={:.3f})", skill_info.name, score)
+        else:
+            logger.debug("  no existing skills to match against")
         decision = SkillDecision(action="new", target_skill=None, reasoning="")
         if top_matches and top_matches[0][1] > 0.5:
             decision = await decide_new_or_update(skill_name, cluster_desc, top_matches)

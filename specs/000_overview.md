@@ -130,19 +130,25 @@ uv run pytest -m redis           # only Redis-dependent tests
 - [ ] `012_curator.md` — Per-cluster rule synthesis (ADD operations, suspicious rule flagging)
 - [ ] `013_skill_evolution_cli.md` — CLI modes for initial run and periodic runs
 
-### Pipeline: Initial Run
+### Pipeline: Periodic Run (default `--evolve`)
 
 ```
-Sessions → extract goals → cluster → per cluster:
-  Reflector (no-tag) → Synthesizer (frontmatter) → Registry (search)
-  → Decide new/update → Synthesizer (full skill) → Write SKILL.md → Rules DB
+--evolve (periodic, daily mode)
+  New sessions → extract goals → detect skills (tool:skill parts) → per thread:
+    Reflector (tag mode) → insights_by_skill → update counters → mark processed
+    → Group threads by cluster → per skill per cluster:
+      Curator (ADD rules) → update SKILL.md → Rules DB
+
+DRY_RUN=1 → no writes to disk or DB
 ```
 
-### Pipeline: Periodic Run
+### Pipeline: Initial Run (`--evolve --first-time`)
 
 ```
-New sessions → extract goals → match skills (from metadata) → per thread:
-  Reflector (tag mode) → update counters → mark processed
-  → Re-cluster threads by goals → per cluster:
-    Curator (ADD rules) → update SKILL.md → Rules DB
+--evolve --first-time
+  Sessions → extract goals → cluster → per cluster:
+    Summarize → Reflector (no-tag) → Synthesizer (frontmatter) → Registry (search)
+    → Decide new/update → Synthesizer (full skill) → Write SKILL.md → Rules DB
+
+DRY_RUN=1 → no writes to disk or DB
 ```

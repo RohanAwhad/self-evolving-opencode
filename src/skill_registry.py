@@ -89,8 +89,17 @@ async def scan_skills(skills_dir: Path = SKILLS_DIR_DEFAULT) -> list[SkillInfo]:
 # ---------------------------------------------------------------------------
 
 
+_MODEL_CACHE: dict[str, SentenceTransformer] = {}
+
+
+def _get_model(model_name: str = EMBEDDING_MODEL) -> SentenceTransformer:
+    if model_name not in _MODEL_CACHE:
+        _MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+    return _MODEL_CACHE[model_name]
+
+
 def _embed(texts: list[str], model_name: str = EMBEDDING_MODEL) -> np.ndarray:
-    model = SentenceTransformer(model_name)
+    model = _get_model(model_name)
     return model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
 
 

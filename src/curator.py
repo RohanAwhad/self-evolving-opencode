@@ -132,11 +132,20 @@ def _extract_rule_contents(skill_md: str) -> list[str]:
     return rules
 
 
+_MODEL_CACHE: dict[str, SentenceTransformer] = {}
+
+
+def _get_model(model_name: str = EMBEDDING_MODEL) -> SentenceTransformer:
+    if model_name not in _MODEL_CACHE:
+        _MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+    return _MODEL_CACHE[model_name]
+
+
 def _is_duplicate(new_content: str, existing_contents: list[str], threshold: float = 0.90) -> bool:
     """Check if new rule content is too similar to an existing rule."""
     if not existing_contents:
         return False
-    model = SentenceTransformer(EMBEDDING_MODEL)
+    model = _get_model()
     new_emb = model.encode([new_content], show_progress_bar=False, convert_to_numpy=True)
     existing_embs = model.encode(existing_contents, show_progress_bar=False, convert_to_numpy=True)
     sims = cosine_similarity(new_emb, existing_embs)[0]

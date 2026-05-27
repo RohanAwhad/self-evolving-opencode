@@ -30,11 +30,18 @@ class ClusterResult:
 # ---------------------------------------------------------------------------
 
 DEFAULT_MODEL = "all-mpnet-base-v2"
+_MODEL_CACHE: dict[str, SentenceTransformer] = {}
+
+
+def _get_model(model_name: str = DEFAULT_MODEL) -> SentenceTransformer:
+    if model_name not in _MODEL_CACHE:
+        _MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+    return _MODEL_CACHE[model_name]
 
 
 def _embed(goals: list[str], model_name: str = DEFAULT_MODEL) -> np.ndarray:
     """Embed, mean-subtract (removes shared domain signal), then L2-normalize."""
-    model = SentenceTransformer(model_name)
+    model = _get_model(model_name)
     embeddings = model.encode(goals, show_progress_bar=False, convert_to_numpy=True)
     # Mean subtraction — critical for narrow-domain text
     centered = embeddings - embeddings.mean(axis=0)

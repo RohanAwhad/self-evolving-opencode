@@ -165,3 +165,53 @@ def _reset_llm_redis():
     import src.llm as _llm
 
     _llm._redis = aioredis.Redis(host="localhost", port=6380, decode_responses=True)
+
+
+# ---------------------------------------------------------------------------
+# Skills DB fixture
+# ---------------------------------------------------------------------------
+
+_SKILLS_DB_SCHEMA = """\
+CREATE TABLE rules (
+    id TEXT PRIMARY KEY,
+    skill_name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    helpful_count INTEGER DEFAULT 0,
+    harmful_count INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE processed_synthesize (
+    session_id TEXT PRIMARY KEY,
+    processed_at TEXT NOT NULL,
+    skill_name TEXT,
+    action TEXT
+);
+
+CREATE TABLE processed_evolve (
+    session_id TEXT PRIMARY KEY,
+    processed_at TEXT NOT NULL,
+    rules_tagged INTEGER DEFAULT 0,
+    rules_added INTEGER DEFAULT 0
+);
+
+CREATE TABLE skill_clusters (
+    skill_name TEXT NOT NULL,
+    cluster_id INTEGER NOT NULL,
+    goal_text TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (skill_name, cluster_id, goal_text)
+);
+"""
+
+
+@pytest.fixture
+def skills_db_path(tmp_path: Path) -> Path:
+    """Empty skills DB with schema for phase 2 tests."""
+    db_file = tmp_path / "skills.db"
+    conn = sqlite3.connect(db_file)
+    conn.executescript(_SKILLS_DB_SCHEMA)
+    conn.commit()
+    conn.close()
+    return db_file

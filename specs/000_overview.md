@@ -153,6 +153,8 @@ DRY_RUN=1 → no writes to disk or DB
 ## Backlog
 
 - [ ] **Cache SentenceTransformer singletons** — `goal_clusterer._embed()`, `skill_registry._embed()`, `curator._is_duplicate()` each create a fresh model per call. Add module-level singleton or shared `src/embeddings.py`.
+- [ ] **Switch `summarize_conversation` to `complete_tool`** — current `complete()` + delimiter tags fails sometimes. Define a tool schema with structured fields, same pattern as `goal_extractor`.
 - [ ] **Scaling `get_unprocessed_sessions`** — uses `NOT IN (...)` which won't scale to thousands of processed sessions. Switch to LEFT JOIN or temp table.
-- [ ] **Profile and consider `asyncio.gather` for evolve queue** — currently sequential per session (reflect depends on prior state). May parallelize summarize calls within the queue.
 - [ ] **Add `--force` flag** to re-process already-processed sessions.
+- [ ] **DRY_RUN: print full SKILL.md content** — currently only prints "would write X (N chars)". Print the actual markdown so operator can inspect before enabling writes.
+- [ ] **Evolve full skill directory** — currently only synthesizes/evolves `SKILL.md`. Design and implement pipeline support for `scripts/`, `references/`, and `assets/` subdirectories. Synthesizer should generate supporting files from patterns observed in threads; curator should evolve them from insights.

@@ -38,10 +38,13 @@ Implemented all Phase 2 modules (specs 008-013). 176 tests total.
 
 ### Remaining
 - Run live smoke tests against real OpenCode DB with a few sessions
-- Profile pipeline performance, consider asyncio.gather for parallel queue execution
+- Profile pipeline performance, consider parallel execution for evolve queue
 - Consider adding `--force` flag to re-process sessions
 - `_get_unprocessed_sessions_sync` uses `NOT IN (...)` which won't scale to thousands of processed sessions — switch to LEFT JOIN or temp table
 
 ## Backlog
 
 - **Cache SentenceTransformer singletons** — `goal_clusterer._embed()`, `skill_registry._embed()`, and `curator._is_duplicate()` each create a fresh `SentenceTransformer("all-mpnet-base-v2")` per call. Reloads weights every time (~199 params, fast but wasteful). Add module-level singleton in each, or a shared `src/embeddings.py`.
+- **Switch `summarize_conversation` to `complete_tool`** — currently uses `complete()` + string delimiter tags (`<|...|>`) prone to extraction failures. `goal_extractor.py` already uses `complete_tool()` with a strict JSON schema. Define a tool with fields for Goal/Intent/What Happened/etc., switch to forced tool-use.
+- **DRY_RUN: print full SKILL.md content** — currently only prints "would write X (N chars)". Print the actual markdown so operator can inspect before enabling writes.
+- **Evolve full skill directory** — pipeline currently only handles `SKILL.md`. Design and implement synthesis + evolution for `scripts/`, `references/`, and `assets/` subdirectories within each skill.

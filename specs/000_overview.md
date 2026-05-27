@@ -152,7 +152,7 @@ DRY_RUN=1 → no writes to disk or DB
 
 ## Backlog
 
-- [ ] **Cache SentenceTransformer singletons** — `goal_clusterer._embed()`, `skill_registry._embed()`, `curator._is_duplicate()` each create a fresh model per call. Add module-level singleton or shared `src/embeddings.py`.
+- [x] **Cache SentenceTransformer singletons** — `_MODEL_CACHE` dict + `_get_model()` in each module. Test suite 90s → 10s.
 - [x] **Switch `summarize_conversation` to `complete_tool`** — uses `SUMMARIZE_TOOL` schema with structured fields.
 - [ ] **Scaling `get_unprocessed_sessions`** — uses `NOT IN (...)` which won't scale to thousands of processed sessions. Switch to LEFT JOIN or temp table.
 - [ ] **Add `--force` flag** to re-process already-processed sessions.
